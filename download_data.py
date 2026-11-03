@@ -91,7 +91,7 @@ def load_file_listing(csv_path: Path) -> pd.DataFrame:
 def redivis_uri(table_id: str, file_path: str) -> str:
     """Build a redivis fsspec URI for a file inside a table."""
     # Example: redivis://aimi.mrnet_knee_mri_s:4a2c:v1_0.train:5wjf/axial/0000.npy
-    print(f'Started downloading{file_path}')
+    print(f'Started downloading : {file_path}')
     return f"redivis://{table_id}/{file_path}"
 
 
