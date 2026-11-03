@@ -1,3 +1,5 @@
 .vscode
 train
 validate
+data
+__pycache__
