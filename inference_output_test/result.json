@@ -1,0 +1,54 @@
+{
+  "study_id": "0004",
+  "is_abnormal": true,
+  "findings": [
+    "ACL tear",
+    "LCL tear",
+    "Medial meniscus tear",
+    "Lateral meniscus tear",
+    "Effusion",
+    "Bone bruise",
+    "Patellar tendon tear",
+    "Quadriceps tendon tear",
+    "Osteochondral defect"
+  ],
+  "affected_regions": [
+    "Medial Meniscus",
+    "Medial Compartment",
+    "Lateral Compartment",
+    "Patellofemoral",
+    "Joint Space"
+  ],
+  "prob_abnormal": 0.3127,
+  "probs_findings": {
+    "ACL tear": 0.5429,
+    "PCL tear": 0.4549,
+    "MCL tear": 0.476,
+    "LCL tear": 0.5402,
+    "Medial meniscus tear": 0.5998,
+    "Lateral meniscus tear": 0.4734,
+    "Effusion": 0.4593,
+    "Bone bruise": 0.5591,
+    "Patellar tendon tear": 0.5506,
+    "Quadriceps tendon tear": 0.505,
+    "Osteochondral defect": 0.4687,
+    "Synovitis": 0.4465
+  },
+  "probs_regions": {
+    "ACL": 0.46,
+    "PCL": 0.4519,
+    "MCL": 0.4731,
+    "LCL": 0.448,
+    "Medial Meniscus": 0.5384,
+    "Lateral Meniscus": 0.4497,
+    "Medial Compartment": 0.5052,
+    "Lateral Compartment": 0.5115,
+    "Patellofemoral": 0.5258,
+    "Joint Space": 0.5612
+  },
+  "heatmaps_shape": [
+    12,
+    336,
+    336
+  ]
+}
