@@ -55,7 +55,7 @@ TRAIN_TABLE_ID = "aimi.mrnet_knee_mri_s:4a2c:v1_0.train:5wjf"
 # If validation files live under a different Redivis table, put its ID here.
 # If the same table contains both train and valid files, set this to the
 # same value as TRAIN_TABLE_ID.
-VALID_TABLE_ID = "aimi.mrnet_knee_mri_s:4a2c:v1_0.valid:5wjf"  # <-- UPDATE IF NEEDED
+VALID_TABLE_ID = "aimi.mrnet_knee_mri_s:4a2c:v1_0.valid:5wjf"  # <-- UPDATE IF NEEDED (table appears empty)
 
 # Mapping from the CSV "Folder" column -> (local dir, redivis table id)
 FOLDER_MAP = {
