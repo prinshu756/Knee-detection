@@ -1,0 +1,453 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Knee MRI Model Dashboard</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: three working columns (study data, viewer, model output) under a fixed compliance strip. */
+:root{
+  --bg:#F4F6F9; --surface:#FFFFFF; --line:#DDE3EA; --fg:#0E1726; --muted:#4A5568;
+  --accent:#1F5FBF; --accent-fg:#FFFFFF; --soft:#E8EFFA;
+  --good:#0B6B4D; --good-bg:#DDF3EA; --warn:#7A4A05; --warn-bg:#FCEFD0; --bad:#9B1C1C; --bad-bg:#FBE0E0; --info-bg:#E8EFFA;
+  --viewer:#06080C; --viewer-fg:#D5DCE6;
+  --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0B1018; --surface:#131B27; --line:#263243; --fg:#E6ECF4; --muted:#9AA8BB;
+  --accent:#6FA3F2; --accent-fg:#0B1018; --soft:#1B2A42;
+  --good:#6FD3AB; --good-bg:#12392C; --warn:#F2C26B; --warn-bg:#3A2C0E; --bad:#F59A9A; --bad-bg:#3E1717; --info-bg:#1B2A42; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0B1018; --surface:#131B27; --line:#263243; --fg:#E6ECF4; --muted:#9AA8BB;
+  --accent:#6FA3F2; --accent-fg:#0B1018; --soft:#1B2A42;
+  --good:#6FD3AB; --good-bg:#12392C; --warn:#F2C26B; --warn-bg:#3A2C0E; --bad:#F59A9A; --bad-bg:#3E1717; --info-bg:#1B2A42; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--sans);padding-block:0 24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1400px;margin:0 auto}
+header.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:16px 0}
+h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-0.01em;text-wrap:balance}
+.sub{color:var(--muted);font-size:13px}
+.spacer{flex:1}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 12px;border:1px solid var(--warn);background:var(--warn-bg);color:var(--warn);border-radius:6px;font-size:12px;font-weight:700;letter-spacing:.04em}
+.bar .mono{font:500 12px var(--mono);letter-spacing:0}
+.grid{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr) minmax(0,360px);gap:16px;align-items:start;margin-top:16px}
+@media (max-width:1100px){.grid{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.card+.card{margin-top:16px}
+h2{margin:0 0 12px;font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.drop{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:20px 12px;border:1.5px dashed var(--muted);border-radius:8px;cursor:pointer;background:var(--bg)}
+.drop:hover,.drop.over,.drop:focus-within{border-color:var(--accent);background:var(--soft)}
+.drop input{position:absolute;width:1px;height:1px;opacity:0}
+.drop strong{font-size:14px}
+.drop span{font-size:12px;color:var(--muted)}
+.btn{font:600 13px var(--sans);height:34px;padding:0 14px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:11px;font-size:11px;font-weight:700;letter-spacing:.03em}
+.chip svg{width:12px;height:12px}
+.chip.ex{background:var(--info-bg);color:var(--accent)}
+.chip.ok{background:var(--good-bg);color:var(--good)}
+.chip.warn{background:var(--warn-bg);color:var(--warn)}
+.chip.bad{background:var(--bad-bg);color:var(--bad)}
+.chip.mute{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+dl{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0;font-size:13px}
+dt{color:var(--muted)}
+dd{margin:0;text-align:right;font-family:var(--mono);font-size:12.5px;overflow-wrap:anywhere}
+.slots{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.slot{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font:500 12px var(--mono)}
+.slot svg{width:14px;height:14px;flex:none}
+.slot.on{color:var(--good)}
+.slot.off{color:var(--bad);background:var(--bad-bg);border-color:transparent}
+.slot small{margin-left:auto;font-size:11px;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-size:11px;font-weight:600;color:var(--muted);padding:4px 6px;border-bottom:1px solid var(--line)}
+td{padding:6px;border-bottom:1px solid var(--line);vertical-align:middle}
+td select{max-width:100%}
+select{font:500 12px var(--mono);height:28px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg);padding:0 6px}
+.viewer{background:var(--viewer);border-radius:8px;position:relative;display:flex;align-items:center;justify-content:center;min-height:360px;overflow:hidden}
+.viewer canvas{max-width:100%;max-height:520px;image-rendering:auto}
+.viewer .tag{position:absolute;left:10px;top:10px;padding:3px 8px;border-radius:5px;background:rgba(0,0,0,.7);color:var(--viewer-fg);font:500 12px var(--mono)}
+.viewer .tag2{position:absolute;right:10px;top:10px;padding:3px 8px;border-radius:5px;background:var(--warn-bg);color:var(--warn);font:700 11px var(--sans)}
+.viewer .empty{color:var(--viewer-fg);font-size:13px;padding:24px;text-align:center}
+.ctl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 20px;margin-top:12px}
+.ctl label{display:block;font-size:12px;font-weight:600;color:var(--muted)}
+.ctl input[type=range]{width:100%;accent-color:var(--accent);margin-top:6px}
+.ctl select{width:100%;margin-top:6px}
+@media (max-width:560px){.ctl{grid-template-columns:1fr}}
+.verdict{border-radius:8px;padding:12px;display:flex;align-items:center;gap:10px;font-weight:700}
+.verdict svg{width:20px;height:20px;flex:none}
+.verdict.bad{background:var(--bad-bg);color:var(--bad)}
+.verdict.warn{background:var(--warn-bg);color:var(--warn)}
+.verdict.ok{background:var(--good-bg);color:var(--good)}
+.verdict small{display:block;font-weight:500;font-size:12px}
+.find{list-style:none;margin:12px 0 0;padding:0}
+.find li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.find .nm{display:flex;align-items:center;gap:7px;font-weight:600}
+.find .st{font-size:11px;color:var(--muted);font-weight:500;margin-left:auto}
+.segs{display:flex;gap:2px;grid-column:1/2}
+.segs i{width:100%;max-width:18px;height:8px;border-radius:2px;background:var(--line)}
+.segs i.p{background:var(--good)}.segs i.b{background:var(--warn)}.segs i.a{background:var(--muted);opacity:.55}
+.val{font:500 12px var(--mono);text-align:right}
+.note{font-size:12px;color:var(--muted);margin:10px 0 0}
+.warnbox{display:flex;gap:8px;padding:10px;border-radius:8px;background:var(--warn-bg);color:var(--warn);font-size:12.5px;margin-bottom:12px}
+.warnbox svg{width:16px;height:16px;flex:none;margin-top:2px}
+.hist{width:100%;height:auto;display:block}
+.hist text{fill:var(--muted);font:11px var(--mono)}
+#theme{position:static}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Knee MRI Model Dashboard</h1>
+      <div class="sub">Upload knee MRI slices, read what is in the files, and see the model's findings layout.</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="bar" role="status">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
+      <span>AI PRELIMINARY — FOR RADIOLOGIST REVIEW ONLY</span>
+      <span class="mono">Model v2.3.1 · demo, no model connected</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- LEFT: upload + study data -->
+    <div>
+      <section class="card" aria-labelledby="h-up">
+        <h2 id="h-up">Upload</h2>
+        <label class="drop" id="drop">
+          <input type="file" id="file" multiple accept=".dcm,.dicom,image/png,image/jpeg,application/dicom">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          <strong>Drop MRI files here or choose files</strong>
+          <span>DICOM (.dcm, uncompressed) or PNG/JPG slices. Files stay in your browser.</span>
+        </label>
+        <div class="row">
+          <button class="btn" id="demo" type="button">Load example study</button>
+          <button class="btn" id="clear" type="button">Clear</button>
+        </div>
+        <p class="note" id="msg" role="status"></p>
+      </section>
+
+      <section class="card" aria-labelledby="h-st">
+        <h2 id="h-st">Study data <span id="srcchip"></span></h2>
+        <dl id="sum"></dl>
+        <p class="note">Patient name, ID and dates in DICOM headers are never read or shown.</p>
+      </section>
+
+      <section class="card" aria-labelledby="h-sl">
+        <h2 id="h-sl">MRI slots</h2>
+        <div class="slots" id="slots"></div>
+        <p class="note" id="slotnote"></p>
+      </section>
+
+      <section class="card" aria-labelledby="h-se">
+        <h2 id="h-se">Series</h2>
+        <div style="overflow-x:auto"><table><thead><tr><th scope="col">Series</th><th scope="col">Images</th><th scope="col">Slot</th></tr></thead><tbody id="series"></tbody></table></div>
+      </section>
+    </div>
+
+    <!-- MIDDLE: viewer -->
+    <div>
+      <section class="card" aria-labelledby="h-vw">
+        <h2 id="h-vw">Viewer</h2>
+        <div class="viewer" id="viewer">
+          <canvas id="cv" width="10" height="10" role="img" aria-label="MRI slice"></canvas>
+          <div class="tag" id="vtag"></div>
+          <div class="tag2" id="vtag2">Heatmap unavailable: no model connected</div>
+          <div class="empty" id="vempty" hidden>No image loaded. Upload slices or load the example study.</div>
+        </div>
+        <div class="ctl">
+          <label for="sersel">Series<select id="sersel"></select></label>
+          <label for="sl">Slice <span id="slnum" style="font-family:var(--mono);font-weight:500"></span><input type="range" id="sl" min="0" max="0" value="0"></label>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-hi">
+        <h2 id="h-hi">Intensity of this slice</h2>
+        <svg class="hist" id="hist" viewBox="0 0 560 150" role="img" aria-label="Histogram of pixel intensity for the current slice"></svg>
+        <dl id="stats" style="margin-top:10px"></dl>
+      </section>
+    </div>
+
+    <!-- RIGHT: model output -->
+    <div>
+      <section class="card" aria-labelledby="h-mo">
+        <h2 id="h-mo">Model output <span class="chip ex">SIMULATED</span></h2>
+        <div id="warns"></div>
+        <div id="verdict"></div>
+        <ul class="find" id="finds"></ul>
+        <p class="note">No trained model runs in this page. These numbers are generated from the contents of your files so the same upload always gives the same result. They are not a reading of the images and must not be used clinically.</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var SLOTS=['SAG_FS','COR_FS','AX_FS','SAG_NOFS','COR_NOFS','AX_NOFS'];
+  var FINDINGS=['ACL','MCL','Medial Meniscus','Lateral Meniscus','Medial OA','Lateral OA','PF OA','Effusion','Synovitis',"Baker's",'Contusion','Fracture'];
+  var ICON={ok:'M20 6 9 17l-5-5',no:'M18 6 6 18M6 6l12 12',warn:'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01',crit:'M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86zM12 8v4M12 16h.01',dot:'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8 12h8'};
+  var $=function(id){return document.getElementById(id)};
+  var state={series:[],cur:0,idx:0,source:'',files:0,bytes:0,notes:[]};
+
+  function svg(d,w){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="'+(w||2.4)+'" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+d+'"/></svg>'}
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function fmtBytes(n){return n>1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB'}
+
+  /* ---------- DICOM ---------- */
+  var LONG=['OB','OW','OF','SQ','UT','UN','OD','OL','UC','UR'];
+  var WANT={'0008,0060':'modality','0008,103e':'desc','0018,0050':'thick','0020,0013':'inst','0028,0010':'rows','0028,0011':'cols','0028,0100':'bits','0028,0103':'prep','0020,0037':'iop','0018,0087':'field','0028,0030':'spacing','0020,0011':'sernum'};
+  var NUM={'rows':1,'cols':1,'bits':1,'prep':1};
+  function h4(n){return ('0000'+n.toString(16)).slice(-4)}
+  function ascii(u8,s,l){var t='';for(var i=s;i<s+l&&i<u8.length;i++)t+=String.fromCharCode(u8[i]);return t.replace(/\0/g,'').trim()}
+  function parseDicom(buf){
+    var u8=new Uint8Array(buf);
+    if(u8.length<140||ascii(u8,128,4)!=='DICM')return null;
+    var dv=new DataView(buf),p=132,explicit=true,o={},ts='1.2.840.10008.1.2.1';
+    try{
+      while(p+8<=u8.length){
+        var g=dv.getUint16(p,true),e=dv.getUint16(p+2,true),key=h4(g)+','+h4(e);
+        if(g===0xFFFE){p+=8;continue}
+        var vr=null,len,hdr;
+        if(g===2||explicit){
+          vr=String.fromCharCode(u8[p+4],u8[p+5]);
+          if(LONG.indexOf(vr)>=0){len=dv.getUint32(p+8,true);hdr=12}else{len=dv.getUint16(p+6,true);hdr=8}
+        }else{len=dv.getUint32(p+4,true);hdr=8}
+        if(g===0x7FE0&&e===0x10){o.pixOff=p+hdr;o.pixLen=len;break}
+        if(vr==='SQ'||len===0xFFFFFFFF){p+=hdr;continue}
+        var vs=p+hdr;
+        if(g===2&&e===0x10){ts=ascii(u8,vs,len);if(ts==='1.2.840.10008.1.2')explicit=false}
+        var nm=WANT[key];
+        if(nm&&o[nm]===undefined){
+          if(NUM[nm]||vr==='US')o[nm]=dv.getUint16(vs,true);else o[nm]=ascii(u8,vs,len);
+        }
+        p=vs+len;
+      }
+    }catch(err){}
+    o.ts=ts;
+    return o;
+  }
+  function decodeDicom(buf,o){
+    if(o.pixOff===undefined||!o.rows||!o.cols)return null;
+    if(o.ts!=='1.2.840.10008.1.2'&&o.ts!=='1.2.840.10008.1.2.1')return {compressed:true};
+    var n=o.rows*o.cols,bytes=(o.bits||16)>8?2:1;
+    if(o.pixOff+n*bytes>buf.byteLength)return null;
+    var data;
+    if(bytes===2){var raw=buf.slice(o.pixOff,o.pixOff+n*2);data=o.prep===1?new Int16Array(raw):new Uint16Array(raw)}
+    else data=new Uint8Array(buf.slice(o.pixOff,o.pixOff+n));
+    return {w:o.cols,h:o.rows,data:data};
+  }
+  function planeFromIop(iop){
+    if(!iop)return null;
+    var v=iop.split('\\').map(parseFloat);if(v.length<6||v.some(isNaN))return null;
+    var nx=v[1]*v[5]-v[2]*v[4],ny=v[2]*v[3]-v[0]*v[5],nz=v[0]*v[4]-v[1]*v[3];
+    var ax=Math.abs(nx),ay=Math.abs(ny),az=Math.abs(nz);
+    return ax>=ay&&ax>=az?'SAG':ay>=az?'COR':'AX';
+  }
+  function guessSlot(desc,iop){
+    var d=(desc||'').toLowerCase(),pl=null;
+    if(/sag/.test(d))pl='SAG';else if(/cor/.test(d))pl='COR';else if(/\bax|tra/.test(d))pl='AX';
+    if(!pl)pl=planeFromIop(iop);
+    if(!pl)return '';
+    var fs=/fs|fat.?sat|stir|spair|spir/.test(d);
+    return pl+(fs?'_FS':'_NOFS');
+  }
+
+  /* ---------- images ---------- */
+  function loadImage(file){
+    return new Promise(function(res,rej){
+      var url=URL.createObjectURL(file),im=new Image();
+      im.onload=function(){
+        var c=document.createElement('canvas');c.width=im.naturalWidth;c.height=im.naturalHeight;
+        var x=c.getContext('2d');x.drawImage(im,0,0);
+        var d=x.getImageData(0,0,c.width,c.height).data,g=new Uint8Array(c.width*c.height);
+        for(var i=0;i<g.length;i++)g[i]=Math.round(.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2]);
+        URL.revokeObjectURL(url);res({w:c.width,h:c.height,data:g});
+      };
+      im.onerror=function(){URL.revokeObjectURL(url);rej(new Error('bad image'))};
+      im.src=url;
+    });
+  }
+  function readBuf(file){
+    return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(r.result)};r.onerror=function(){rej(r.error)};r.readAsArrayBuffer(file)});
+  }
+
+  async function ingest(files){
+    var list=Array.prototype.slice.call(files);
+    if(!list.length)return;
+    $('msg').textContent='Reading '+list.length+' file'+(list.length>1?'s':'')+'...';
+    var groups={},skipped=0,compressed=0,bytes=0;
+    for(var i=0;i<list.length;i++){
+      var f=list[i];bytes+=f.size;
+      try{
+        var item=null,meta={};
+        if(/\.(png|jpe?g)$/i.test(f.name)||/^image\/(png|jpeg)/.test(f.type)){
+          item=await loadImage(f);meta={desc:'Image series',modality:'',inst:i};
+        }else{
+          var buf=await readBuf(f),o=parseDicom(buf);
+          if(!o){skipped++;continue}
+          var px=decodeDicom(buf,o);
+          if(px&&px.compressed){compressed++;item=null}
+          else item=px;
+          meta=o;
+          if(!item){skipped++;if(!(px&&px.compressed))continue;else continue}
+        }
+        var key=(meta.sernum||'')+'|'+(meta.desc||'Series');
+        if(!groups[key])groups[key]={name:meta.desc||'Series',slot:guessSlot(meta.desc,meta.iop),slices:[],meta:meta};
+        item.order=meta.inst!==undefined&&meta.inst!==''?parseFloat(meta.inst):i;
+        item.fname=f.name;
+        groups[key].slices.push(item);
+      }catch(err){skipped++}
+    }
+    var series=Object.keys(groups).map(function(k){var g=groups[k];g.slices.sort(function(a,b){return a.order-b.order});return g});
+    if(!series.length){
+      $('msg').textContent=compressed?'These DICOM files use compressed pixel data, which this page cannot draw. Export as uncompressed DICOM or PNG and try again.':'No readable MRI files found. Use DICOM (.dcm) or PNG/JPG.';
+      return;
+    }
+    state={series:series,cur:0,idx:0,source:'upload',files:list.length,bytes:bytes,notes:[]};
+    if(skipped)state.notes.push(skipped+' file'+(skipped>1?'s':'')+' skipped (unreadable or compressed).');
+    $('msg').textContent=state.notes.join(' ')||'Loaded '+list.length+' file'+(list.length>1?'s':'')+'.';
+    state.idx=Math.floor((series[0].slices.length-1)/2);
+    renderAll();
+  }
+
+  /* ---------- example study ---------- */
+  function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;var t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+  function phantom(plane,fs,k,n){
+    var W=192,H=192,d=new Uint16Array(W*H),r=rng(plane.charCodeAt(0)*31+k+(fs?7:0));
+    var t=(k+0.5)/n,sc=1-Math.pow(2*t-1,2)*0.55;
+    for(var y=0;y<H;y++)for(var x=0;x<W;x++){
+      var dx=(x-W/2)/(W*0.36*sc),dy=(y-H/2)/(H*(plane==='AX'?0.36:0.46)*sc),q=dx*dx+dy*dy,v=0;
+      if(q<1){v=700+260*Math.cos(q*3)+140*Math.sin(x/9+k)*Math.cos(y/11);if(q<0.22)v+=fs?-260:320}
+      else if(q<1.35)v=170+40*Math.sin(q*18);
+      v+=(r()-.5)*70;d[y*W+x]=Math.max(0,Math.round(v*(fs?1.15:1)));
+    }
+    return {w:W,h:H,data:d,order:k,fname:'example-'+plane+'-'+k};
+  }
+  function loadExample(){
+    var defs=[['SAG_FS','SAG',true],['COR_FS','COR',true],['AX_FS','AX',true],['SAG_NOFS','SAG',false],['COR_NOFS','COR',false]];
+    var series=defs.map(function(d){var s=[];for(var k=0;k<16;k++)s.push(phantom(d[1],d[2],k,16));return {name:'Example '+d[0].replace('_',' '),slot:d[0],slices:s,meta:{modality:'MR'}}});
+    state={series:series,cur:0,idx:8,source:'example',files:80,bytes:80*192*192*2,notes:[]};
+    $('msg').textContent='Showing a generated example study (five of six slots).';
+    renderAll();
+  }
+
+  /* ---------- rendering ---------- */
+  function stat(img){
+    var d=img.data,n=d.length,mn=Infinity,mx=-Infinity,sum=0,i;
+    for(i=0;i<n;i++){var v=d[i];if(v<mn)mn=v;if(v>mx)mx=v;sum+=v}
+    var bins=new Uint32Array(64),span=(mx-mn)||1;
+    for(i=0;i<n;i++)bins[Math.min(63,Math.floor((d[i]-mn)/span*64))]++;
+    var fine=new Uint32Array(512);
+    for(i=0;i<n;i++)fine[Math.min(511,Math.floor((d[i]-mn)/span*512))]++;
+    function pct(p){var t=n*p,a=0;for(var b=0;b<512;b++){a+=fine[b];if(a>=t)return mn+b/512*span}return mx}
+    return {mn:mn,mx:mx,mean:sum/n,p1:pct(.01),p99:pct(.99),bins:bins};
+  }
+  function draw(){
+    var s=state.series[state.cur];if(!s)return;
+    var img=s.slices[state.idx],cv=$('cv');
+    cv.width=img.w;cv.height=img.h;
+    var ctx=cv.getContext('2d'),out=ctx.createImageData(img.w,img.h),st=stat(img),lo=st.p1,hi=st.p99,sp=(hi-lo)||1,d=img.data;
+    for(var i=0;i<d.length;i++){var v=Math.max(0,Math.min(255,Math.round((d[i]-lo)/sp*255)));out.data[i*4]=v;out.data[i*4+1]=v;out.data[i*4+2]=v;out.data[i*4+3]=255}
+    ctx.putImageData(out,0,0);
+    $('vtag').textContent=(s.slot||'unassigned')+' · slice '+(state.idx+1)+' / '+s.slices.length;
+    $('slnum').textContent=(state.idx+1)+' / '+s.slices.length;
+    // histogram
+    var mx=0;for(var b=0;b<64;b++)if(st.bins[b]>mx)mx=st.bins[b];
+    var h='<line x1="8" y1="118" x2="552" y2="118" stroke="currentColor" opacity=".3"/>';
+    for(var j=0;j<64;j++){var bh=Math.sqrt(st.bins[j]/mx)*104;h+='<rect x="'+(8+j*8.5)+'" y="'+(118-bh)+'" width="7" height="'+bh+'" rx="1.5" fill="var(--accent)"/>'}
+    h+='<text x="8" y="140">'+Math.round(st.mn)+'</text><text x="552" y="140" text-anchor="end">'+Math.round(st.mx)+'</text><text x="280" y="140" text-anchor="middle">pixel value (bar height is a square-root count)</text>';
+    $('hist').innerHTML=h;
+    $('stats').innerHTML=row('Size',img.w+' × '+img.h+' px')+row('Mean',st.mean.toFixed(1))+row('Display window',Math.round(lo)+' to '+Math.round(hi)+' (1st–99th percentile)');
+  }
+  function row(a,b){return '<dt>'+esc(a)+'</dt><dd>'+esc(b)+'</dd>'}
+  function renderViewer(){
+    var has=state.series.length>0;
+    $('vempty').hidden=has;$('cv').hidden=!has;$('vtag').hidden=!has;$('vtag2').hidden=!has;
+    $('sersel').innerHTML=state.series.map(function(s,i){return '<option value="'+i+'"'+(i===state.cur?' selected':'')+'>'+esc(s.name)+' ('+s.slices.length+')</option>'}).join('');
+    var s=state.series[state.cur];
+    $('sl').max=s?s.slices.length-1:0;$('sl').value=state.idx;
+    if(has)draw();
+  }
+  function slotMap(){
+    var m={};SLOTS.forEach(function(k){m[k]=0});
+    state.series.forEach(function(s){if(m[s.slot]!==undefined)m[s.slot]+=s.slices.length});
+    return m;
+  }
+  function renderStudy(){
+    var S=state.series;
+    $('srcchip').innerHTML=state.source==='example'?'<span class="chip ex">EXAMPLE</span>':state.source==='upload'?'<span class="chip ok">YOUR FILES</span>':'';
+    if(!S.length){$('sum').innerHTML=row('Status','No study loaded');return}
+    var total=S.reduce(function(a,s){return a+s.slices.length},0),dims={},mods={},th={},fld={};
+    S.forEach(function(s){s.slices.forEach(function(i){dims[i.w+'×'+i.h]=1});if(s.meta.modality)mods[s.meta.modality]=1;if(s.meta.thick)th[parseFloat(s.meta.thick).toFixed(1)]=1;if(s.meta.field)fld[s.meta.field]=1});
+    var k=function(o){return Object.keys(o).join(', ')||'not in file'};
+    $('sum').innerHTML=row('Files',String(state.files))+row('Total size',fmtBytes(state.bytes))+row('Series',String(S.length))+row('Slices read',String(total))+row('Modality',k(mods))+row('Matrix (px)',k(dims))+row('Slice thickness',Object.keys(th).length?k(th)+' mm':'not in file')+row('Field strength',Object.keys(fld).length?k(fld)+' T':'not in file');
+  }
+  function renderSlots(){
+    var m=slotMap(),miss=[];
+    $('slots').innerHTML=SLOTS.map(function(k){
+      var on=m[k]>0;if(!on)miss.push(k);
+      return '<div class="slot '+(on?'on':'off')+'">'+svg(on?ICON.ok:ICON.no)+'<span>'+k+'</span><small>'+(on?m[k]+' img':'missing')+'</small></div>';
+    }).join('');
+    $('slotnote').textContent=miss.length?miss.length+' of 6 slots empty. Assign series to slots in the table below if the guess is wrong.':'All six slots filled.';
+    return miss;
+  }
+  function renderSeries(){
+    $('series').innerHTML=state.series.map(function(s,i){
+      var opts='<option value="">unassigned</option>'+SLOTS.map(function(k){return '<option'+(s.slot===k?' selected':'')+'>'+k+'</option>'}).join('');
+      return '<tr><td>'+esc(s.name)+'</td><td style="font-family:var(--mono)">'+s.slices.length+'</td><td><select aria-label="Slot for '+esc(s.name)+'" data-i="'+i+'">'+opts+'</select></td></tr>';
+    }).join('')||'<tr><td colspan="3" style="color:var(--muted)">Nothing loaded.</td></tr>';
+    Array.prototype.forEach.call($('series').querySelectorAll('select'),function(el){
+      el.addEventListener('change',function(){state.series[+el.dataset.i].slot=el.value;renderSlots();renderModel();renderViewer()});
+    });
+  }
+  function hashStudy(){
+    var h=2166136261>>>0;
+    state.series.forEach(function(s){s.slices.forEach(function(im){
+      var d=im.data,step=Math.max(1,Math.floor(d.length/4096));
+      for(var i=0;i<d.length;i+=step){h^=d[i]&0xFFFF;h=Math.imul(h,16777619)>>>0}
+      h^=im.w;h=Math.imul(h,16777619)>>>0;
+    })});
+    return h;
+  }
+  function renderModel(){
+    var miss=slotMap(),missing=SLOTS.filter(function(k){return !miss[k]});
+    if(!state.series.length){
+      $('warns').innerHTML='';$('verdict').innerHTML='<p class="note" style="margin:0">Load a study to see the model output layout.</p>';$('finds').innerHTML='';return;
+    }
+    $('warns').innerHTML=missing.length?'<div class="warnbox">'+svg(ICON.warn,2.2)+'<span><b>Series missing:</b> '+missing.join(', ')+'. A real model would use '+(6-missing.length)+' of 6 slots.</span></div>':'';
+    var r=rng(hashStudy()),res=FINDINGS.map(function(n){var c=Math.pow(r(),2.2)*0.95;return {n:n,c:c}});
+    var boost=Math.floor(r()*12);res[boost].c=0.82+r()*0.15;
+    if(r()>0.45){var b2=(boost+1+Math.floor(r()*10))%12;res[b2].c=0.6+r()*0.25}
+    res.forEach(function(f){f.s=f.c>=0.6?'present':f.c>=0.4?'borderline':'absent'});
+    res.sort(function(a,b){return b.c-a.c});
+    var top=res[0].c,abn=res.some(function(f){return f.s==='present'});
+    var cls,lab,ic;
+    if(!abn){cls='ok';lab='NORMAL';ic=ICON.ok}else if(top>=0.9){cls='bad';lab='ABNORMAL · CRITICAL';ic=ICON.crit}else if(top>=0.8){cls='warn';lab='ABNORMAL · URGENT';ic=ICON.warn}else{cls='warn';lab='ABNORMAL · ROUTINE';ic=ICON.warn}
+    var conf=abn?top:1-top;
+    $('verdict').innerHTML='<div class="verdict '+cls+'">'+svg(ic,2.2)+'<div>'+lab+'<small>Abnormality score '+top.toFixed(2)+' ('+(top>=.85?'high':top>=.6?'moderate':'borderline')+') · simulated</small></div></div>';
+    $('finds').innerHTML=res.map(function(f){
+      var on=Math.round(f.c*10),k=f.s==='present'?'p':f.s==='borderline'?'b':'a',segs='';
+      for(var i=0;i<10;i++)segs+='<i'+(i<on?' class="'+k+'"':'')+'></i>';
+      var dot=f.s==='present'?'<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="var(--good)" stroke="var(--good)" stroke-width="1.5"/></svg>':f.s==='borderline'?'<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="none" stroke="var(--warn)" stroke-width="1.8"/></svg>':'<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3" fill="var(--muted)" opacity=".6"/></svg>';
+      return '<li><span class="nm">'+dot+esc(f.n)+'<span class="st">'+f.s+'</span></span><span class="val">'+f.c.toFixed(2)+'</span><span class="segs">'+segs+'</span></li>';
+    }).join('');
+  }
+  function renderAll(){renderStudy();renderSlots();renderSeries();renderViewer();renderModel()}
+
+  /* ---------- events ---------- */
+  $('file').addEventListener('change',function(e){ingest(e.target.files);e.target.value=''});
+  var drop=$('drop');
+  ['dragenter','dragover'].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.add('over')})});
+  ['dragleave','drop'].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.remove('over')})});
+  drop.addEventListener('drop',function(e){ingest(e.dataTransfer.files)});
+  $('demo').addEventListener('click',loadExample);
+  $('clear').addEventListener('click',function(){state={series:[],cur:0,idx:0,source:'',files:0,bytes:0,notes:[]};$('msg').textContent='Cleared.';renderAll()});
+  $('sersel').addEventListener('change',function(e){state.cur=+e.target.value;var n=state.series[state.cur].slices.length;state.idx=Math.floor((n-1)/2);renderViewer()});
+  $('sl').addEventListener('input',function(e){state.idx=+e.target.value;draw()});
+  loadExample();
+})();
+</script>
+
+</body></html>
