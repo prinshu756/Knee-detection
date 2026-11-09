@@ -107,7 +107,7 @@ select{font:500 12px var(--mono);height:28px;border:1px solid var(--line);border
     <div class="bar" role="status">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
       <span>AI PRELIMINARY — FOR RADIOLOGIST REVIEW ONLY</span>
-      <span class="mono">Model v2.3.1 · demo, no model connected</span>
+      <span class="mono">Model v2.3.1 · connected</span>
     </div>
   </header>
 
@@ -173,11 +173,11 @@ select{font:500 12px var(--mono);height:28px;border:1px solid var(--line);border
     <!-- RIGHT: model output -->
     <div>
       <section class="card" aria-labelledby="h-mo">
-        <h2 id="h-mo">Model output <span class="chip ex">SIMULATED</span></h2>
+        <h2 id="h-mo">Model output <span id="modelSrcChip" class="chip ex">SIMULATED</span></h2>
         <div id="warns"></div>
         <div id="verdict"></div>
         <ul class="find" id="finds"></ul>
-        <p class="note">No trained model runs in this page. These numbers are generated from the contents of your files so the same upload always gives the same result. They are not a reading of the images and must not be used clinically.</p>
+        <p class="note">Real model output from the backend (POST /api/infer). Confidences come from the trained multi-task model; findings are thresholded per target. These are AI preliminaries for radiologist review only, not a clinical diagnosis. Heatmaps are computed per finding (shape returned by the server).</p>
       </section>
     </div>
   </div>
@@ -189,7 +189,7 @@ select{font:500 12px var(--mono);height:28px;border:1px solid var(--line);border
   var FINDINGS=['ACL','MCL','Medial Meniscus','Lateral Meniscus','Medial OA','Lateral OA','PF OA','Effusion','Synovitis',"Baker's",'Contusion','Fracture'];
   var ICON={ok:'M20 6 9 17l-5-5',no:'M18 6 6 18M6 6l12 12',warn:'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01',crit:'M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86zM12 8v4M12 16h.01',dot:'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8 12h8'};
   var $=function(id){return document.getElementById(id)};
-  var state={series:[],cur:0,idx:0,source:'',files:0,bytes:0,notes:[]};
+  var state={series:[],cur:0,idx:0,source:'',files:0,bytes:0,notes:[],rawFiles:[],modelResult:null};
 
   function svg(d,w){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="'+(w||2.4)+'" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+d+'"/></svg>'}
   function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -328,7 +328,7 @@ select{font:500 12px var(--mono);height:28px;border:1px solid var(--line);border
   function loadExample(){
     var defs=[['SAG_FS','SAG',true],['COR_FS','COR',true],['AX_FS','AX',true],['SAG_NOFS','SAG',false],['COR_NOFS','COR',false]];
     var series=defs.map(function(d){var s=[];for(var k=0;k<16;k++)s.push(phantom(d[1],d[2],k,16));return {name:'Example '+d[0].replace('_',' '),slot:d[0],slices:s,meta:{modality:'MR'}}});
-    state={series:series,cur:0,idx:8,source:'example',files:80,bytes:80*192*192*2,notes:[]};
+    state={series:series,cur:0,idx:8,source:'example',files:80,bytes:80*192*192*2,notes:[],rawFiles:[],modelResult:null};
     $('msg').textContent='Showing a generated example study (five of six slots).';
     renderAll();
   }
@@ -411,7 +411,56 @@ select{font:500 12px var(--mono);height:28px;border:1px solid var(--line);border
     })});
     return h;
   }
+  function renderModelReal(r){
+    $('modelSrcChip').className='chip ok';
+    $('modelSrcChip').textContent='MODEL · live';
+    var w=r.warnings||[];
+    $('warns').innerHTML=w.length?'<div class="warnbox">'+svg(ICON.warn,2.2)+'<span><b>Model notes:</b> '+w.join('; ')+'.</span></div>':'';
+    var abn=!!r.is_abnormal, p=+r.prob_abnormal||0, cls, lab, ic;
+    if(!abn){cls='ok';lab='NORMAL';ic=ICON.ok;}
+    else if(p>=0.85){cls='bad';lab='ABNORMAL · CRITICAL';ic=ICON.crit;}
+    else if(p>=0.7){cls='warn';lab='ABNORMAL · URGENT';ic=ICON.warn;}
+    else {cls='warn';lab='ABNORMAL · ROUTINE';ic=ICON.warn;}
+    $('verdict').innerHTML='<div class="verdict '+cls+'">'+svg(ic,2.2)+'<div>'+lab+'<small>Abnormality probability '+p.toFixed(2)+' ('+(p>=.85?'high':p>=.6?'moderate':'borderline')+') · real model</small></div></div>';
+    var pf=r.probs_findings||{}, detected=r.findings||[];
+    var items=Object.keys(pf).map(function(name){return {n:name,c:+pf[name]||0,present:detected.indexOf(name)>=0};});
+    items.sort(function(a,b){return b.c-a.c;});
+    $('finds').innerHTML=items.map(function(f){
+      var on=Math.round(f.c*10), k=f.present?'p':f.c>=0.4?'b':'a', segs='';
+      for(var i=0;i<10;i++)segs+='<i'+(i<on?' class="'+k+'"':'')+'></i>';
+      var dot=f.present?'<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="var(--good)" stroke="var(--good)" stroke-width="1.5"/></svg>':f.c>=0.4?'<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="none" stroke="var(--warn)" stroke-width="1.8"/></svg>':'<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3" fill="var(--muted)" opacity=".6"/></svg>';
+      return '<li><span class="nm">'+dot+esc(f.n)+'<span class="st">'+(f.present?'present':'absent')+'</span></span><span class="val">'+f.c.toFixed(2)+'</span><span class="segs">'+segs+'</span></li>';
+    }).join('');
+    var pr=r.probs_regions||{}, regions=r.affected_regions||[];
+    if(Object.keys(pr).length){
+      var regHtml='<li><div class="row">'+Object.keys(pr).map(function(name){
+        var on=regions.indexOf(name)>=0;
+        return '<span class="chip '+(on?'ok':'mute')+'">'+esc(name)+' '+(+pr[name]*100).toFixed(0)+'%</span>';
+      }).join('')+'</div></li>';
+      $('finds').insertAdjacentHTML('beforeend',regHtml);
+    }
+  }
+  async function runModel(){
+    if(!state.rawFiles||!state.rawFiles.length){return;}
+    $('modelSrcChip').className='chip mute';$('modelSrcChip').textContent='RUNNING…';
+    $('warns').innerHTML='';$('verdict').innerHTML='<p class="note" style="margin:0">Running model…</p>';$('finds').innerHTML='';
+    var fd=new FormData();
+    state.rawFiles.forEach(function(f){fd.append('files',f);});
+    try{
+      var resp=await fetch('http://127.0.0.1:8765/api/infer',{method:'POST',body:fd});
+      if(!resp.ok)throw new Error('server '+resp.status);
+      var data=await resp.json();
+      state.modelResult=data;
+      renderAll();
+    }catch(err){
+      console.error(err);
+      $('warns').innerHTML='<div class="warnbox">'+svg(ICON.warn,2.2)+'<span>Model server unreachable ('+esc(err.message)+'). Showing simulated layout instead.</span></div>';
+      state.modelResult=null;
+      renderModel();
+    }
+  }
   function renderModel(){
+    if(state.modelResult){renderModelReal(state.modelResult);return;}
     var miss=slotMap(),missing=SLOTS.filter(function(k){return !miss[k]});
     if(!state.series.length){
       $('warns').innerHTML='';$('verdict').innerHTML='<p class="note" style="margin:0">Load a study to see the model output layout.</p>';$('finds').innerHTML='';return;
@@ -437,13 +486,24 @@ select{font:500 12px var(--mono);height:28px;border:1px solid var(--line);border
   function renderAll(){renderStudy();renderSlots();renderSeries();renderViewer();renderModel()}
 
   /* ---------- events ---------- */
-  $('file').addEventListener('change',function(e){ingest(e.target.files);e.target.value=''});
+  $('file').addEventListener('change',function(e){
+    var files=Array.prototype.slice.call(e.target.files||[]);
+    state.rawFiles=files;
+    ingest(e.target.files);
+    e.target.value='';
+    runModel();
+  });
   var drop=$('drop');
   ['dragenter','dragover'].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.add('over')})});
   ['dragleave','drop'].forEach(function(t){drop.addEventListener(t,function(e){e.preventDefault();drop.classList.remove('over')})});
-  drop.addEventListener('drop',function(e){ingest(e.dataTransfer.files)});
+  drop.addEventListener('drop',function(e){
+    var files=Array.prototype.slice.call(e.dataTransfer.files||[]);
+    state.rawFiles=files;
+    ingest(e.dataTransfer.files);
+    runModel();
+  });
   $('demo').addEventListener('click',loadExample);
-  $('clear').addEventListener('click',function(){state={series:[],cur:0,idx:0,source:'',files:0,bytes:0,notes:[]};$('msg').textContent='Cleared.';renderAll()});
+  $('clear').addEventListener('click',function(){state={series:[],cur:0,idx:0,source:'',files:0,bytes:0,notes:[],rawFiles:[],modelResult:null};$('msg').textContent='Cleared.';renderAll()});
   $('sersel').addEventListener('change',function(e){state.cur=+e.target.value;var n=state.series[state.cur].slices.length;state.idx=Math.floor((n-1)/2);renderViewer()});
   $('sl').addEventListener('input',function(e){state.idx=+e.target.value;draw()});
   loadExample();

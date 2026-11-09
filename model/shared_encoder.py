@@ -82,12 +82,14 @@ class SharedEncoder(nn.Module):
 
     def __init__(self, img_size: int = 336, patch_size: int = 14,
                  embed_dim: int = 384, depth: int = 12, num_heads: int = 6,
-                 S: int = 6, D: int = 16, pretrained: bool = False):
+                 S: int = 6, D: int = 16, pretrained: bool = False,
+                 vit_chunk: int = 8):
         super().__init__()
         self.S = S
         self.D = D
         self.embed_dim = embed_dim
         self.grid = img_size // patch_size          # 24
+        self.vit_chunk = vit_chunk                  # slices processed per ViT micro-batch
 
         self.vit = dinov2_vits14(
             patch_size=patch_size, embed_dim=embed_dim, depth=depth,
@@ -132,9 +134,26 @@ class SharedEncoder(nn.Module):
         x = x.expand(-1, -1, -1, 3, -1, -1)      # (B, S, D, 3, H, W)
         x = x.reshape(B * S * D, 3, H, W)        # (B*S*D, 3, 336, 336)
 
-        cls, patches = self.vit(x)
-        # cls:      (B*S*D, 384)
-        # patches:  (B*S*D, 576, 384)
+        # ---- Run ViT in micro-batches (chunks of slices) to cap VRAM ----
+        # Processing all B*S*D slices at once blows up attention memory
+        # during training backward. Chunking keeps peak activation memory low.
+        cls_list = []
+        patch_list = []
+        chunk = max(1, int(self.vit_chunk))
+        n_total = x.shape[0]
+        for start in range(0, n_total, chunk):
+            xc = x[start:start + chunk]
+            cls_c, patch_c = self.vit(xc)
+            cls_list.append(cls_c)
+            patch_list.append(patch_c)
+            del xc, cls_c, patch_c
+        if torch.is_grad_enabled():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+        cls = torch.cat(cls_list, dim=0)         # (B*S*D, 384)
+        patches = torch.cat(patch_list, dim=0)   # (B*S*D, 576, 384)
+        del cls_list, patch_list
 
         cls = cls.reshape(B, S, D, self.embed_dim)                                    # (B, 6, 16, 384)
         patches = patches.reshape(B, S, D, self.grid, self.grid, self.embed_dim)      # (B, 6, 16, 24, 24, 384)

@@ -23,8 +23,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from torch.amp import autocast
-from torch.cuda.amp import GradScaler
+from torch.amp import autocast , GradScaler
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset import MRNetDataset, get_dataloaders, collate_fn
@@ -109,7 +108,7 @@ def validate(
 
 def train(
     epochs: int = 30,
-    batch_size: int = 8,
+    batch_size: int = 1,
     lr: float = 1e-4,
     weight_decay: float = 1e-2,
     patience: int = 7,

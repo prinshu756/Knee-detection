@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class PatchEmbed(nn.Module):
@@ -141,16 +142,34 @@ class VisionTransformer(nn.Module):
 
     def forward_features(self, x: torch.Tensor):
         B = x.shape[0]
-        x = self.patch_embed(x)                      # (B, 576, 384)
+        x = self.patch_embed(x)                      # (B, num_patches, embed_dim)
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)        # (B, 577, 384)
-        x = x + self.pos_embed
+        x = torch.cat((cls_tokens, x), dim=1)        # (B, 1 + num_patches, embed_dim)
+
+        # Interpolate positional embedding if the input grid differs from the
+        # one pos_embed was initialised for (e.g. 336 -> 224 saves VRAM).
+        num_patches = x.shape[1] - 1
+        if num_patches != self.pos_embed.shape[1] - 1:
+            pos_cls = self.pos_embed[:, 0:1, :]                       # (1, 1, C)
+            pos_patch = self.pos_embed[:, 1:, :]                      # (1, N_old, C)
+            old_grid = int(round((self.pos_embed.shape[1] - 1) ** 0.5))
+            new_grid = int(round(num_patches ** 0.5))
+            pos_patch = pos_patch.reshape(1, old_grid, old_grid,
+                                          -1).permute(0, 3, 1, 2)     # (1, C, G, G)
+            pos_patch = F.interpolate(pos_patch, size=(new_grid, new_grid),
+                                      mode="bilinear", align_corners=False)
+            pos_patch = pos_patch.permute(0, 2, 3, 1).reshape(1, new_grid * new_grid, -1)
+            pos_embed = torch.cat([pos_cls, pos_patch], dim=1)
+        else:
+            pos_embed = self.pos_embed
+
+        x = x + pos_embed
         x = self.pos_drop(x)
         for blk in self.blocks:
             x = blk(x)
         x = self.norm(x)
-        cls = x[:, 0]                                # (B, 384)
-        patches = x[:, 1:]                           # (B, 576, 384)
+        cls = x[:, 0]                                # (B, embed_dim)
+        patches = x[:, 1:]                           # (B, num_patches, embed_dim)
         return cls, patches
 
     def forward(self, x: torch.Tensor):

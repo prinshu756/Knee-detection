@@ -20,9 +20,7 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -36,9 +34,8 @@ from flask import Flask, request, jsonify, send_from_directory
 # ---------------------------------------------------------------------------
 from dataset import SLOT_NAMES
 from model import MultiTaskModel, SharedEncoder
-from post_processing import PostProcessor, DEFAULT_THRESHOLDS_PATH if False else None  # noqa
-from post_processing import PostProcessConfig, DEFAULT_TAU
-from infer import DEFAULT_CHECKPOINT, CACHE_ROOT as _CACHE_ROOT  # noqa: F401
+from post_processing import PostProcessor, PostProcessConfig, DEFAULT_TAU
+from infer import DEFAULT_CHECKPOINT
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -79,13 +76,26 @@ _WANT = {
 
 def _ascii(u8: np.ndarray, s: int, l: int) -> str:
     t = ""
-    for i in range(s, min(s + l, u8.length if hasattr(u8, "length") else len(u8))):
-        t += chr(u8[i])
+    end = min(s + l, int(u8.size))
+    for i in range(s, end):
+        t += chr(int(u8[i]))
     return t.replace("\0", "").strip()
 
 
 def _h4(n: int) -> str:
-    return ("0000" + format(n, "x"))[-4:]
+    return ("0000" + format(int(n), "x"))[-4:]
+
+
+class _DV:
+    """Tiny DataView-like reader over a bytes buffer (little-endian)."""
+    def __init__(self, b: bytes):
+        self.b = b
+
+    def getUint16(self, o: int) -> int:
+        return int.from_bytes(self.b[o:o + 2], "little")
+
+    def getUint32(self, o: int) -> int:
+        return int.from_bytes(self.b[o:o + 4], "little")
 
 
 def parse_dicom(buf: bytes) -> Optional[dict]:
@@ -94,27 +104,15 @@ def parse_dicom(buf: bytes) -> Optional[dict]:
         return None
     if _ascii(u8, 128, 4) != "DICM":
         return None
-    dv = __import__("numpy").lib.npyio  # noqa  (placeholder, not used)
-    from array import array
-
-    # Use a small DataView-like reader
-    class DV:
-        def __init__(self, b):
-            self.b = b
-        def getUint16(self, o, le=True):
-            return int.from_bytes(b[o:o + 2], "little" if le else "big")
-        def getUint32(self, o, le=True):
-            return int.from_bytes(b[o:o + 4], "little" if le else "big")
-
-    dv = DV(bytes(buf))
+    dv = _DV(bytes(buf))
     p = 132
     explicit = True
     ts = "1.2.840.10008.1.2.1"
     o = {}
     try:
         while p + 8 <= u8.size:
-            g = dv.getUint16(p, True)
-            e = dv.getUint16(p + 2, True)
+            g = dv.getUint16(p)
+            e = dv.getUint16(p + 2)
             key = _h4(g) + "," + _h4(e)
             if g == 0xFFFE:
                 p += 8
@@ -125,13 +123,13 @@ def parse_dicom(buf: bytes) -> Optional[dict]:
             if g == 2 or explicit:
                 vr = bytes(buf[p + 4:p + 6]).decode("ascii", errors="ignore")
                 if vr in _LONG_VR:
-                    length = dv.getUint32(p + 8, True)
+                    length = dv.getUint32(p + 8)
                     hdr = 12
                 else:
-                    length = dv.getUint16(p + 6, True)
+                    length = dv.getUint16(p + 6)
                     hdr = 8
             else:
-                length = dv.getUint32(p + 4, True)
+                length = dv.getUint32(p + 4)
                 hdr = 8
             if g == 0x7FE0 and e == 0x10:
                 o["pixOff"] = p + hdr
@@ -148,7 +146,7 @@ def parse_dicom(buf: bytes) -> Optional[dict]:
             nm = _WANT.get(key)
             if nm and nm not in o:
                 if nm in {"rows", "cols", "bits", "prep"}:
-                    o[nm] = dv.getUint16(vs, True)
+                    o[nm] = dv.getUint16(vs)
                 else:
                     o[nm] = _ascii(u8, vs, length)
             p = vs + length
@@ -158,20 +156,20 @@ def parse_dicom(buf: bytes) -> Optional[dict]:
     return o
 
 
-def decode_dicom(buf: bytes, o: dict) -> Optional[np.ndarray]:
+def decode_dicom(buf: bytes, o: dict):
     if "pixOff" not in o or not o.get("rows") or not o.get("cols"):
         return None
     if o.get("ts") not in ("1.2.840.10008.1.2", "1.2.840.10008.1.2.1"):
         return "compressed"
-    n = o["rows"] * o["cols"]
+    n = int(o["rows"]) * int(o["cols"])
     bytes_per = 2 if (o.get("bits") or 16) > 8 else 1
     if o["pixOff"] + n * bytes_per > len(buf):
         return None
     raw = buf[o["pixOff"]:o["pixOff"] + n * bytes_per]
     if bytes_per == 2:
-        data = np.frombuffer(raw, dtype=np.uint8).astype(np.uint16).reshape(o["rows"], o["cols"])
+        data = np.frombuffer(raw, dtype=np.uint8).astype(np.uint16).reshape(int(o["rows"]), int(o["cols"]))
     else:
-        data = np.frombuffer(raw, dtype=np.uint8).reshape(o["rows"], o["cols"])
+        data = np.frombuffer(raw, dtype=np.uint8).reshape(int(o["rows"]), int(o["cols"]))
     return data
 
 
@@ -209,35 +207,62 @@ def guess_slot(desc: str, iop: Optional[str]) -> str:
 # ---------------------------------------------------------------------------
 # Image -> slot assignment
 # ---------------------------------------------------------------------------
-def load_grayscale_from_file(file_storage) -> Optional[np.ndarray]:
-    """Read one uploaded file (DICOM or image) into a 2D uint8 array."""
+def load_grayscale_from_file(file_storage):
+    """Read one uploaded file (DICOM or image).
+
+    Returns (arr, meta) where arr is a 2D uint8 array (or None) and
+    meta is {"name":..., "desc":..., "iop":...} for DICOM else {"name":...}.
+    """
     name = file_storage.filename.lower()
     buf = file_storage.read()
     file_storage.seek(0)
-    if name.endswith((".dcm", ".dicom")) or buf[:4] == b"" and len(buf) > 128:
-        # DICOM
-        if buf[128:132] == b"DICM":
+    meta = {"name": file_storage.filename}
+    if name.endswith((".dcm", ".dicom")):
+        if len(buf) > 132 and buf[128:132] == b"DICM":
             o = parse_dicom(buf)
             if not o:
-                return None
+                return None, None
             px = decode_dicom(buf, o)
             if px == "compressed" or px is None:
-                return None
-            arr = px
-        else:
-            return None
-    else:
-        arr = cv2.imdecode(np.frombuffer(buf, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
-        if arr is None:
-            return None
-    return arr.astype(np.uint8)
+                return None, None
+            meta["desc"] = o.get("desc", "")
+            meta["iop"] = o.get("iop")
+            return px.astype(np.uint8), meta
+        return None, None
+    arr = cv2.imdecode(np.frombuffer(buf, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+    if arr is None:
+        return None, None
+    return arr.astype(np.uint8), meta
+
+
+def filename_slot(low: str) -> str:
+    """Guess slot from a lowercase filename (image files)."""
+    if re.search(r"sag", low):
+        if re.search(r"nofs", low):
+            return "SAG_NOFS"
+        if re.search(r"fs|sat|stir", low):
+            return "SAG_FS"
+        return "SAG_NOFS"
+    if re.search(r"cor", low):
+        if re.search(r"nofs", low):
+            return "COR_NOFS"
+        if re.search(r"fs|sat|stir", low):
+            return "COR_FS"
+        return "COR_NOFS"
+    if re.search(r"\bax|tra", low):
+        if re.search(r"nofs", low):
+            return "AX_NOFS"
+        if re.search(r"fs|sat|stir", low):
+            return "AX_FS"
+        return "AX_NOFS"
+    return "AX_FS"
 
 
 def resize336(arr: np.ndarray) -> np.ndarray:
     return cv2.resize(arr, (W, H), interpolation=cv2.INTER_AREA)
 
 
-def build_model_input(slot_images: dict) -> tuple[np.ndarray, np.ndarray]:
+def build_model_input(slot_images: dict):
     """
     slot_images: {slot_name: [np.ndarray (2D), ...]}  slices in acquisition order
     Returns X (6,16,336,336) uint8, mask (6,) uint8
@@ -250,7 +275,6 @@ def build_model_input(slot_images: dict) -> tuple[np.ndarray, np.ndarray]:
         si = SLOT_TO_IDX[slot]
         if not imgs:
             continue
-        # center-select 16 slices
         n = len(imgs)
         if n >= D:
             start = (n - D) // 2
@@ -319,27 +343,25 @@ def api_infer():
     if not files:
         return jsonify({"error": "no files"}), 400
 
-    # Parse each file into a grayscale image + guess slot
     slot_images: dict = {s: [] for s in SLOT_ORDER}
     meta = []
     for fs in files:
-        arr = load_grayscale_from_file(fs)
+        arr, m = load_grayscale_from_file(fs)
         if arr is None:
             continue
-        # Guess slot from filename (DICOM desc not readily available from stream;
-        # fall back to filename hints)
+        # Determine slot: DICOM header (desc + iop) takes priority, else filename.
         slot = ""
-        low = fs.filename.lower()
-        if re.search(r"sag", low):
-            slot = "SAG_FS" if re.search(r"fs|sat|stir", low) else "SAG_NOFS"
-        elif re.search(r"cor", low):
-            slot = "COR_FS" if re.search(r"fs|sat|stir", low) else "COR_NOFS"
-        elif re.search(r"\bax|tra", low):
-            slot = "AX_FS" if re.search(r"fs|sat|stir", low) else "AX_NOFS"
+        if m.get("desc") or m.get("iop"):
+            slot = guess_slot(m.get("desc", ""), m.get("iop"))
         if not slot:
-            slot = SLOT_ORDER[len(slot_images) % S] if False else "AX_FS"
+            slot = filename_slot(m["name"].lower())
         slot_images.setdefault(slot, []).append(arr)
-        meta.append({"name": fs.filename, "slot": slot, "shape": [int(arr.shape[0]), int(arr.shape[1])]})
+        meta.append({
+            "name": m["name"],
+            "slot": slot,
+            "desc": m.get("desc", ""),
+            "shape": [int(arr.shape[0]), int(arr.shape[1])],
+        })
 
     X, mask = build_model_input(slot_images)
 
