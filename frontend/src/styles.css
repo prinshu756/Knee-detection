@@ -198,18 +198,6 @@ body.dragging::after {
 .api-dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .api-dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
 .api-dot.off { background: #6b2536; }
-.api-dot.mock { background: var(--info); box-shadow: 0 0 8px var(--info); }
-.mode-pill {
-  background: none; border: 1px solid var(--line); color: var(--dim);
-  font: 700 10px/1 'Segoe UI', system-ui, sans-serif; letter-spacing: .6px;
-  border-radius: 10px; padding: 3px 9px; cursor: pointer; flex: 0 0 auto;
-}
-.mode-pill:hover { border-color: var(--info); color: var(--info); }
-.sim-chip {
-  font: 700 10px/1.4 'Segoe UI', system-ui, sans-serif; letter-spacing: .4px;
-  color: var(--info); border: 1px dashed var(--info); border-radius: 10px;
-  padding: 2px 9px; align-self: flex-start; width: fit-content;
-}
 .api-text { font-size: 12px; color: var(--dim); flex: 1 1 auto; }
 .combo-select {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
@@ -253,3 +241,64 @@ body.dragging::after {
 .pred-sub .mono { color: var(--text); font-size: 11.5px; }
 .pred-sub.detail { border-top: 1px dashed var(--line); padding-top: 8px; }
 .pred-foot { margin-top: auto; color: var(--dim); font-size: 11.5px; }
+
+/* ---------- exam-level task cards ---------- */
+.gauge-wrap.small { justify-content: center; }
+.gauge-wrap.small .gauge { width: 116px; }
+.gauge-wrap.small .gauge-num { font-size: 13px; }
+
+.calib-chip {
+  font: 700 10px/1.7 'Segoe UI', system-ui, sans-serif; letter-spacing: .4px;
+  border-radius: 10px; padding: 2px 10px; width: fit-content;
+}
+.calib-chip.ok { color: var(--ok); border: 1px dashed var(--ok); }
+.calib-chip.no { color: var(--dim); border: 1px dashed var(--line); }
+
+.task-card {
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px 11px;
+  background: var(--bg-2); display: flex; flex-direction: column; gap: 9px;
+}
+.task-card.pos { border-color: var(--accent); box-shadow: 0 0 16px rgba(179, 38, 74, .22); }
+.task-card.cammed { border-color: var(--info); }
+.task-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.task-name { font-weight: 700; font-size: 13.5px; }
+.task-card.pos .task-name { color: var(--hot); }
+.verdict-chip {
+  font: 700 10px/1 'Segoe UI', system-ui, sans-serif; letter-spacing: .5px;
+  text-transform: uppercase; border-radius: 10px; padding: 4px 9px; flex: 0 0 auto;
+}
+.verdict-chip.pos { color: #fff; background: var(--accent-2); border: 1px solid var(--accent); }
+.verdict-chip.neg { color: var(--ok); border: 1px dashed var(--ok); }
+.task-sub { font-size: 11px; color: var(--dim); }
+
+.plane-rows { display: flex; flex-direction: column; gap: 4px; }
+.plane-row { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.plane-name { width: 20px; color: var(--dim); font-weight: 700; font-size: 10px; letter-spacing: .4px; }
+.plane-bar { flex: 1 1 auto; height: 7px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+.plane-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent-2), var(--ok)); }
+.plane-fill.pos { background: linear-gradient(90deg, var(--accent-2), var(--hot)); }
+.plane-val { width: 40px; text-align: right; font-size: 10px; color: var(--dim); }
+
+.cam-btn {
+  background: var(--panel-2); color: var(--dim); border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 10px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.cam-btn:hover:not(:disabled) { color: var(--text); border-color: var(--info); }
+.cam-btn.active { color: var(--info); border-color: var(--info); background: rgba(76, 201, 240, .08); }
+.cam-btn:disabled { opacity: .5; cursor: default; }
+
+.exam-hint { font-size: 12px; color: var(--dim); display: flex; flex-direction: column; gap: 4px; }
+.exam-hint .mono { color: var(--warn); }
+
+/* ---------- Grad-CAM block ---------- */
+.cam-block { border-top: 1px dashed var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.cam-sub { font-size: 10.5px; color: var(--warn); word-break: break-all; }
+.cam-sub2 { font-size: 11px; color: var(--dim); }
+.imp-bars {
+  height: 54px; display: flex; align-items: flex-end; gap: 2px;
+  padding: 4px; background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 7px; cursor: pointer;
+}
+.imp-bar { flex: 1 1 auto; min-height: 3px; border-radius: 1px; background: var(--accent-2); opacity: .55; }
+.imp-bar:hover { opacity: .95; }
+.imp-bar.on { background: var(--hot); opacity: 1; box-shadow: 0 0 7px var(--hot); }

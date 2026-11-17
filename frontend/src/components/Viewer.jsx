@@ -5,7 +5,7 @@ import { COLORMAPS, sliceOf } from '../lib';
 
 // WebGL slice viewer: intensity -> window/level -> colormap LUT on a three.js ortho quad.
 // 'slice' mode = single plane with GSAP crossfade; 'stack' mode = oblique 3D slice stack.
-export default function Viewer({ vol, slice, colormap, invert, flipX, flipY, win, stack, onScrub }) {
+export default function Viewer({ vol, slice, colormap, invert, flipX, flipY, win, stack, onScrub, cam }) {
   const mountRef = useRef(null);
   const S = useRef({}).current;
 
@@ -30,6 +30,13 @@ export default function Viewer({ vol, slice, colormap, invert, flipX, flipY, win
     lutTex.minFilter = lutTex.magFilter = THREE.LinearFilter;
     lutTex.needsUpdate = true;
 
+    // Grad-CAM heatmap texture (one per-slice grid, e.g. 8x8); LinearFilter gives
+    // free bilinear upsampling so the coarse grid smoothly covers the slice.
+    const camTex = new THREE.DataTexture(new Float32Array(64), 8, 8, THREE.RedFormat, THREE.FloatType);
+    camTex.minFilter = camTex.magFilter = THREE.LinearFilter;
+    camTex.wrapS = camTex.wrapT = THREE.ClampToEdgeWrapping;
+    camTex.needsUpdate = true;
+
     const makeVolTex = (w, h) => {
       const t = new THREE.DataTexture(new Float32Array(w * h), w, h, THREE.RedFormat, THREE.FloatType);
       t.minFilter = t.magFilter = THREE.NearestFilter;
@@ -41,6 +48,8 @@ export default function Viewer({ vol, slice, colormap, invert, flipX, flipY, win
       uTexB: { value: makeVolTex(4, 4) },
       uMix: { value: 0 },
       uLUT: { value: lutTex },
+      uCam: { value: camTex },
+      uCamMix: { value: 0 },
       uWin: { value: new THREE.Vector2(0, 1) },
       uFlip: { value: new THREE.Vector2(0, 1) },
       uInvert: { value: 0 },
@@ -52,10 +61,17 @@ export default function Viewer({ vol, slice, colormap, invert, flipX, flipY, win
         varying vec2 vUv;
         void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: `
-        uniform sampler2D uTexA, uTexB, uLUT;
-        uniform float uMix, uInvert, uAlpha;
+        uniform sampler2D uTexA, uTexB, uLUT, uCam;
+        uniform float uMix, uInvert, uAlpha, uCamMix;
         uniform vec2 uWin, uFlip;
         varying vec2 vUv;
+        // jet colormap: blue -> cyan -> green -> yellow -> red
+        vec3 jet(float t) {
+          t = clamp(t, 0.0, 1.0);
+          return clamp(vec3(1.5 - abs(4.0 * t - 3.0),
+                            1.5 - abs(4.0 * t - 2.0),
+                            1.5 - abs(4.0 * t - 1.0)), 0.0, 1.0);
+        }
         void main() {
           vec2 uv = vec2(uFlip.x < 0.5 ? vUv.x : 1.0 - vUv.x,
                          uFlip.y < 0.5 ? vUv.y : 1.0 - vUv.y);
@@ -63,13 +79,17 @@ export default function Viewer({ vol, slice, colormap, invert, flipX, flipY, win
           if (abs(v) < 1e-6 || v < uWin.x + 1e-6) discard;  // background stays transparent, pre-invert
           float n = uWin.y > uWin.x ? clamp((v - uWin.x) / (uWin.y - uWin.x), 0.0, 1.0) : 0.0;
           if (uInvert > 0.5) n = 1.0 - n;
-          gl_FragColor = vec4(texture2D(uLUT, vec2(n, 0.5)).rgb, uAlpha);
+          vec3 col = texture2D(uLUT, vec2(n, 0.5)).rgb;
+          // Grad-CAM overlay: cam value (importance-weighted per slice) tints the tissue
+          float cam = texture2D(uCam, uv).r;
+          if (uCamMix > 0.001) col = mix(col, jet(cam), uCamMix * min(1.0, cam * 1.15) * 0.85);
+          gl_FragColor = vec4(col, uAlpha);
         }`,
       transparent: true,
     });
 
     Object.assign(S, { renderer, scene, camera, uniforms, mat, zoom: 1, drag: null,
-      texA: uniforms.uTexA.value, texB: uniforms.uTexB.value,
+      texA: uniforms.uTexA.value, texB: uniforms.uTexB.value, camTex: uniforms.uCam.value,
       stackGroup: null, volDirty: true, lastSlice: undefined, stackRot: { y: 0.55 } });
 
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
@@ -120,6 +140,7 @@ export default function Viewer({ vol, slice, colormap, invert, flipX, flipY, win
         uniforms: {
           ...S.mat.uniforms,                      // share live uniform objects (LUT/win/flip follow main)
           uTexA: { value: tex }, uTexB: { value: tex }, uAlpha: { value: 0.4 },
+          uCamMix: { value: 0 },                  // CAM overlay is a slice-mode feature only
         },
         vertexShader: S.mat.vertexShader, fragmentShader: S.mat.fragmentShader, transparent: true,
       });
@@ -164,6 +185,44 @@ export default function Viewer({ vol, slice, colormap, invert, flipX, flipY, win
   useEffect(() => {
     if (S.uniforms) gsap.to(S.uniforms.uWin.value, { x: win[0], y: win[1], duration: 0.4, ease: 'power2.out', overwrite: true });
   }, [win[0], win[1]]);
+
+  // --- Grad-CAM overlay: importance-weighted 8x8 grid of the current slice ---
+  // The model consumes 32 uniformly resampled slices, so displayed slice s maps to
+  // model position s*(n-1)/(D-1); neighbouring CAM grids are blended across it and
+  // weighted by their slice importance (dim slices barely tint, hot ones glow).
+  useEffect(() => {
+    if (!S.uniforms) return;
+    if (!cam || !cam.grids?.length) {
+      if (S.camActive) {
+        S.camActive = false;
+        gsap.to(S.uniforms.uCamMix, { value: 0, duration: 0.35, overwrite: true });
+      }
+      return;
+    }
+    S.camActive = true;
+    const n = cam.modelSlices || cam.grids.length;
+    const D = vol ? vol.shape[0] : 1;
+    const p = D > 1 ? (Math.min(slice, D - 1) * (n - 1)) / (D - 1) : 0;
+    const i0 = Math.min(n - 1, Math.floor(p));
+    const i1 = Math.min(n - 1, i0 + 1);
+    const f = p - i0;
+    const gw = cam.gridW || 8, gh = cam.gridH || 8;
+    if (S.camTex.image.width !== gw || S.camTex.image.height !== gh) {
+      S.camTex.image = { data: new Float32Array(gw * gh), width: gw, height: gh };
+    }
+    const g0 = cam.grids[i0] || [];
+    const g1 = cam.grids[i1] || g0;
+    const imp = cam.importance || [];
+    const w0 = imp[i0] ?? 1, w1 = imp[i1] ?? 1;
+    const data = S.camTex.image.data;
+    for (let k = 0; k < data.length; k++) {
+      const a = g0[k] ?? 0, b = g1[k] ?? a;
+      const w = w0 + (w1 - w0) * f;
+      data[k] = (a + (b - a) * f) * w;
+    }
+    S.camTex.needsUpdate = true;
+    gsap.to(S.uniforms.uCamMix, { value: 1, duration: 0.5, overwrite: true });
+  }, [vol, slice, cam]);
 
   // --- stack mode: reveal / hide + gentle auto-rotate ---
   useEffect(() => {

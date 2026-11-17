@@ -54,10 +54,11 @@ class MRNet2D(nn.Module):
             raise ValueError(f'unsupported backbone {backbone}')
         self.n_tasks = n_tasks
         self.fc = nn.Linear(2 * self.feat_dim, n_tasks)
-        # last conv stage for Grad-CAM: the final nn.Sequential child of the
-        # backbone (resnet18 -> layer4, output (B, 512, 8, 8); alexnet -> features)
-        seqs = [c for c in self.backbone.children() if isinstance(c, nn.Sequential)]
-        self.cam_layer = seqs[-1] if seqs else self.backbone
+        # index of the last conv stage for Grad-CAM (the final nn.Sequential
+        # child of the backbone: resnet18 -> layer4, output (B, 512, 8, 8)).
+        # Stored as an INDEX (not a module ref) so load_state_dict stays 1:1.
+        seqs = [i for i, c in enumerate(self.backbone.children()) if isinstance(c, nn.Sequential)]
+        self.cam_index = seqs[-1] if seqs else None
 
     def forward(self, x):                       # (B, 3, D, H, W)
         b, c, d, h, w = x.shape
@@ -91,8 +92,10 @@ def predict_tensor(model, x, task=None, tasks=None):
 # Grad-CAM (slice-level importance + per-slice 8x8 spatial heatmaps)
 # ---------------------------------------------------------------------------
 def _cam_layer(model):
-    """Last conv stage of the backbone (stored by MRNet2D): output (B*D, 512, h, w)."""
-    return model.cam_layer
+    """Last conv stage of the backbone (via stored index): output (B*D, 512, h, w)."""
+    if getattr(model, 'cam_index', None) is None:
+        return model.backbone
+    return model.backbone[model.cam_index]
 
 
 @torch.enable_grad()

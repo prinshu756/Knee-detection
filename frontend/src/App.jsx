@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import gsap from 'gsap';
-import { loadVolume, sha1file, fmtBytes, health, predict, verdictLabel } from './lib';
+import { loadVolume, sha1file, fmtBytes, health, predictExam, explain } from './lib';
 import Viewer from './components/Viewer';
 import PredPanel from './components/PredPanel';
 import { Sidebar, Toolbar, Colorbar } from './components/Chrome';
@@ -20,13 +20,16 @@ export default function App() {
   const [domain, setDomain] = useState([0, 1]);
   const [stack, setStack] = useState(false);
   const [api, setApi] = useState({ online: false, models: [], any: false, checked: false });
-  const [pred, setPred] = useState(null);          // {result} | {error}
-  const [predBusy, setPredBusy] = useState(false);
+  const [exam, setExam] = useState(null);          // predict_exam result | {error}
+  const [examBusy, setExamBusy] = useState(false);
+  const [cam, setCam] = useState(null);            // explain() result for the active task
+  const [camTask, setCamTask] = useState(null);
+  const [camBusy, setCamBusy] = useState(null);    // task whose CAM is computing
 
   const depth = vol ? vol.shape[0] : 0;
 
   const onUpload = useCallback(async (f) => {
-    setErr(null); setPred(null); setPlaying(false);
+    setErr(null); setExam(null); setCam(null); setCamTask(null); setPlaying(false);
     try {
       const buf = await f.arrayBuffer();
       const v = await loadVolume(f);
@@ -82,20 +85,31 @@ export default function App() {
   }, []);
   useEffect(() => { refreshHealth(); }, [refreshHealth]);
 
-  const runPrediction = useCallback(async (task, plane, f) => {
+  // exam-level prediction: one upload -> abnormal/ACL/meniscus verdicts
+  const runExam = useCallback(async (f) => {
     const useFile = f || file;
-    if (!useFile) { setPred({ error: 'Upload a .npy volume first.' }); return; }
-    setPredBusy(true); setPred(null);
-    gsap.fromTo('.pred-card', { opacity: 0.3, y: 8 }, { opacity: 1, y: 0, duration: 0.4 });
+    if (!useFile) { setExam({ error: 'Upload a .npy volume first.' }); return; }
+    setExamBusy(true); setExam(null);
     try {
-      const res = await predict(useFile, task, plane);
-      const v = verdictLabel(res);
-      setPred({ res, v });
+      setExam(await predictExam(useFile));
     } catch (e) {
-      setPred({ error: e.message });
+      setExam({ error: e.message });
       if (!navigator.onLine || e.name === 'AbortError' || e.message.includes('fetch')) refreshHealth();
-    } finally { setPredBusy(false); }
+    } finally { setExamBusy(false); }
   }, [file, refreshHealth]);
+
+  // Grad-CAM per task: fetch once, show overlay; click again to hide
+  const explainFor = useCallback(async (task) => {
+    if (camTask === task) { setCam(null); setCamTask(null); return; }
+    if (!file) return;
+    setCamBusy(task);
+    try {
+      const res = await explain(file, task);
+      setCam(res); setCamTask(task);
+    } catch (e) {
+      setExam((x) => ({ ...(x?.tasks ? x : {}), error: `Grad-CAM failed: ${e.message}` }));
+    } finally { setCamBusy(null); }
+  }, [file, camTask]);
 
   // global drag & drop
   useEffect(() => {
@@ -130,7 +144,7 @@ export default function App() {
         <div className="top-actions">
           <button className="mode-btn active">Display</button>
           <button className="mode-btn" onClick={refreshHealth} title="re-check backend status">
-            {api.mock ? 'Mock API' : `API ${api.online ? 'online' : api.checked ? 'offline' : '…'}`}
+            {`API ${api.online ? 'online' : api.checked ? 'offline' : '…'}`}
           </button>
         </div>
       </div>
@@ -147,15 +161,17 @@ export default function App() {
             {vol ? (
               <>
                 <Viewer vol={vol} slice={slice} colormap={colormap} invert={invert} flipX={flipX}
-                        flipY={flipY} win={win} stack={stack} onScrub={onScrub} />
+                        flipY={flipY} win={win} stack={stack} onScrub={onScrub} cam={cam} />
                 {!stack && <div className="slice-title">{file.name.replace(/\.[^.]+$/, '')}</div>}
-                <div className="corner-badge">{stack ? '3D stack · drag to rotate' : `slice ${slice + 1} / ${depth}`}</div>
+                <div className="corner-badge">
+                  {stack ? '3D stack · drag to rotate' : cam ? `slice ${slice + 1} / ${depth} · CAM overlay` : `slice ${slice + 1} / ${depth}`}
+                </div>
               </>
             ) : (
               <div className="dropzone" id="dropzone">
                 <div className="dz-icon">▦</div>
                 <div className="dz-title">Drop a knee MRI here</div>
-                <div className="dz-sub">.npy volume (N×256×256) or any image — then pick colormaps, scrub slices, run prediction</div>
+                <div className="dz-sub">.npy volume (N×256×256) or any image — exam-level diagnosis, Grad-CAM heatmaps, calibrated confidence</div>
                 <button className="primary-btn" onClick={() => document.getElementById('file-input')?.click()}>Choose file</button>
                 <div className="dz-hint">or drag & drop anywhere</div>
               </div>
@@ -165,8 +181,9 @@ export default function App() {
         </main>
 
         <PredPanel vol={vol} file={file} api={api}
-                   pred={pred} predBusy={predBusy} runPrediction={runPrediction}
-                   onRefresh={refreshHealth} />
+                   exam={exam} examBusy={examBusy} runExam={runExam} onRefresh={refreshHealth}
+                   cam={cam} camTask={camTask} camBusy={camBusy} explainFor={explainFor}
+                   slice={slice} setSlice={setSlice} />
       </div>
 
       <input id="file-input" type="file" accept=".npy,.png,.jpg,.jpeg,.bmp" hidden

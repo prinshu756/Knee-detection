@@ -18,15 +18,14 @@ Vite 5.4          dev server + bundler (also proxies /api -> backend :8000)
 
 Components
   src/App.jsx                 app shell: state, upload, drag&drop, keyboard shortcuts
-  src/components/Viewer.jsx   three.js viewer (the canvas)
+  src/components/Viewer.jsx   three.js viewer (the canvas) + Grad-CAM overlay shader
   src/components/Chrome.jsx   Sidebar (file overview), Toolbar, Colorbar
-  src/components/PredPanel.jsx prediction panel (task picker, gauge, API status)
+  src/components/PredPanel.jsx diagnosis panel: 3-task verdict cards, per-plane
+                              breakdown, Grad-CAM controls, calibration chip
   src/lib/npy.js              .npy parser running IN THE BROWSER
   src/lib/colormaps.js        7 colormaps as 256-entry RGB lookup tables
-  src/lib/config.js           API mode config (mock/live, API keys via .env)
-  src/lib/mockApi.js          simulated backend (no server needed)
-  src/lib/realApi.js          real HTTP calls to backend/server.py
-  src/lib/api.js              dispatcher: picks mock or live per config
+  src/lib/config.js           backend base URL + optional API key (frontend/.env)
+  src/lib/api.js              all backend calls: /health, /predict_exam, /explain
 
 How the viewer works (three.js shader pipeline)
 1. The uploaded .npy is parsed entirely in JavaScript (header v1/v2, dtypes,
@@ -35,37 +34,42 @@ How the viewer works (three.js shader pipeline)
 2. The current slice becomes a three.js DataTexture on a full-screen quad.
 3. A custom WebGL fragment shader does, per pixel:
      sample intensity -> window/level normalization -> colormap LUT lookup
+     -> Grad-CAM jet tint (when a heatmap is active)
      -> discard background (so inverted mode keeps a dark background)
 4. Colormaps (Grayscale, Bone, Viridis, Rainbow, Hot, Ice, RGB) are 256-entry
    LUT textures; switching colormap just swaps the LUT texture - no re-render.
-5. GSAP animates: slice crossfade (two textures + uMix uniform), window/level
-   changes, gauge sweeps.
-6. "3D Stack" mode: one quad per slice (max 48), offset in z, grouped, tilted,
+5. Grad-CAM overlay: a second 8x8 texture (that slice's class-activation map,
+   bilinearly upsampled by the GPU) tints the tissue with a jet colormap.
+   Grids are importance-weighted per slice, so weak slices barely tint.
+6. GSAP animates: slice crossfade (two textures + uMix uniform), window/level
+   changes, gauge sweeps, CAM fade-in.
+7. "3D Stack" mode: one quad per slice (max 48), offset in z, grouped, tilted,
    gently auto-rotating; drag to rotate, ctrl+wheel to zoom.
    (Gotcha fixed during dev: three r169 DataTexture does NOT auto-set
    needsUpdate - stack textures must be flagged manually or they never upload.)
-7. Controls: arrows/wheel scrub, Space play, I invert, 3 stack, drag pan,
+8. Controls: arrows/wheel scrub, Space play, I invert, 3 stack, drag pan,
    double-click reset.
 
-Prediction flow (frontend side)
+Diagnosis flow (frontend side)
    file (still in browser memory)
-     -> POST /api/predict?task=<t>&plane=<p>   (multipart upload; Vite proxies
-                                                /api -> http://localhost:8000)
-     -> backend JSON: { task, plane, probability, label, class }
-     -> verdict label + animated gauge + confidence %
+     -> POST /api/predict_exam               (multipart upload; Vite proxies
+                                              /api -> http://localhost:8000)
+     -> backend JSON: per task {prob_avg, prob_max, threshold, label, class,
+        confidence, planes: {axial|coronal|sagittal: {prob, prob_cal, ...}}}
+     -> three verdict cards (abnormal / ACL tear / meniscal tear):
+        animated gauge per task + per-plane mini-bars (which view drove it)
+        + a "Grad-CAM heatmap" button per task
+     -> POST /api/explain?task=<t>           (on Grad-CAM click)
+     -> jet overlay renders in the viewer + slice-importance bar chart
 
-Mock vs Live API
- mock (default): mockApi.js simulates /health and /predict in the browser with
-  realistic latency. "Probability" = stable hash of (filename, size, task,
-  plane), so the same input always gives the same number (good for demos).
-  Results are tagged "simulated - mock mode".
- live: realApi.js calls backend/server.py. Optional API key auth.
- Switching: click the MOCK/LIVE pill in the prediction panel (stored in
-  localStorage), or set VITE_API_MODE in frontend/.env. Keys go in .env:
-      VITE_API_MODE=live
-      VITE_API_BASE=/api            (or a full https:// URL)
-      VITE_API_KEY=sk-...           (sent as Authorization: Bearer ...)
-      VITE_API_KEY_HEADER=Authorization   (or e.g. X-API-Key)
+Backend connection
+- The frontend ALWAYS uses the real backend - there is no mock/simulated mode.
+- Default target: '/api' (the Vite dev proxy -> http://localhost:8000).
+- Optional frontend/.env:
+      VITE_API_BASE=https://your-service.example.com   (hosted backend)
+      VITE_API_KEY=sk-...                              (sent as
+                                                        Authorization: Bearer ...)
+      VITE_API_KEY_HEADER=Authorization                (or e.g. X-API-Key)
 
 
 2. BACKEND  (backend\)
@@ -107,7 +111,8 @@ that combo (thread-safe, cached). Drop any new model_*.joblib into outputs/
 and restart the server - it is picked up automatically, no code changes.
 
 Endpoints
-  GET  /health     {status, device, models_available: [...], api_key_required}
+  GET  /health     {status, device, models_available: [...], api_key_required,
+                    calibration: {ready, running, tasks}}
   GET  /models     per-model details (artifact file, kind, threshold,
                    epoch, val_loss, val_auc)
   POST /predict?task=<t>&plane=<p>   multipart 'file' (.npy)
@@ -115,6 +120,27 @@ Endpoints
                    errors: 404 unknown combo, 400 bad .npy, 413 >300 MB
   POST /predict_all                  one upload -> ALL available combos
                                       (multi-task models run once per plane)
+  POST /predict_exam                 EXAM-LEVEL diagnosis (what the UI uses):
+                   per-plane multi-task sigmoids -> aggregate across planes
+                   (prob_avg AND prob_max per task) -> thresholded 0/1 label
+                   (P > 0.5) -> confidence = distance from the boundary;
+                   per-plane probabilities are temperature-calibrated once the
+                   fit on the labeled valid split is ready (prob_cal)
+  POST /explain?task=<t>             GRAD-CAM: per-slice importance + per-slice
+                   8x8 spatial heatmap grids (resnet18 layer4 on 256x256);
+                   prefers a single-task artifact when one exists
+  GET  /calibration                  current temperature-scaling status
+  POST /calibrate                    (re)fit temperatures on the valid split
+
+Grad-CAM + confidence calibration (backend/pipeline.py)
+- explain_tensor: hooks the last conv stage (resnet18 layer4 -> 8x8 grid),
+  backpropagates the task logit, GAPs the gradients into channel weights,
+  and returns per-slice importance + per-slice CAM normalized to [0, 1].
+- fit_temperature/apply_temperature: temperature scaling - grid-search T that
+  minimizes NLL of sigmoid(logit/T) on the valid split (labels from
+  images/valid-<task>.csv), cached in outputs/calibration.json, auto-loaded
+  at startup. Demo models fit T=6.0 (i.e. they ARE overconfident - the
+  calibration reports that honestly).
 
 Auth (optional)
   set MRNET_API_KEY=sk-...  before starting the server, and requests must send
@@ -141,15 +167,17 @@ Multi-task variants share the backbone and output 3 logits at once.
 
 Current artifacts are DEMO models: trained on 24 exams in ~10 minutes to
 validate the whole pipeline end-to-end. Their predictions are NOT clinically
-meaningful (e.g. exam 1130 is truly ACL-negative but the demo model says
-"positive 73.8%"). Train with MRNET_MODE='all' (all 1130 exams, hours) for
-real accuracy - the backend/frontend need NO changes afterwards.
+meaningful (e.g. exam 1130 is truly ACL-negative but the demo model still says
+"ACL positive" - raw sagittal P=0.738, exam-level calibrated avg P=0.503).
+Train with MRNET_MODE='all' (all 1130 exams, hours) for real accuracy - the
+backend/frontend need NO changes afterwards.
 
 Testing setup (not part of the product)
 - Playwright + Microsoft Edge (headless) drives the real UI end-to-end:
-  upload -> colormap switches -> 3D stack -> prediction -> console error check.
+  upload -> colormap switches -> 3D stack -> exam prediction cards ->
+  Grad-CAM overlay -> console error check.
 - Backend verified via curl through the Vite proxy (200/400/401/404 paths,
-  determinism, /predict_all).
+  determinism, /predict_all, /predict_exam, /explain).
 
 
 4. HOW A REQUEST FLOWS END TO END
@@ -158,15 +186,19 @@ Testing setup (not part of the product)
   upload .npy
     |-- parse in JS (npy.js) --------> static app
     |-- render slice (three.js)
-    |-- click "Run prediction"
-        |-- POST /api/predict?task=acl&plane=sagittal
-            (multipart file)          --proxy /api-->  registry lookup (7 combos)
-                                                       np.load -> preprocess
-                                                       (standardize + 32 slices)
-                                                       model forward (GPU)
-                                                       sigmoid -> JSON
-        <-- {probability: 0.738, label: 1, ...}  <----+
-    |-- gauge animates to 73.8%
-
-In mock mode the last hop never happens - mockApi.js answers locally with a
-deterministic simulated probability.
+    |-- click "Run exam prediction"
+        |-- POST /api/predict_exam   --proxy /api-->  registry lookup (7 combos)
+            (multipart file)                          np.load -> preprocess
+                                                      (standardize + 32 slices)
+                                                      forward per plane (GPU)
+                                                      avg/max across planes
+                                                      threshold -> label
+                                                      temperature-calibrate
+        <-- {tasks: {abnormal|acl|meniscus: {prob_avg, prob_max, label,
+             confidence, planes: {...}}}, calibrated: true}  <----+
+    |-- three verdict cards animate in
+    |-- click "Grad-CAM heatmap" on a task
+        |-- POST /api/explain?task=acl                  Grad-CAM hook on
+            (multipart file)        --proxy /api-->     layer4 (8x8 grids)
+        <-- {slice_importance[32], grids[32][64]}  <----+
+    |-- jet tint over the slice in the viewer + importance bar chart

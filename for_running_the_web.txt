@@ -33,7 +33,9 @@ On startup it prints the device and the registered model combos, e.g.:
 Quick sanity check (new terminal):
 
     curl http://localhost:8000/health
-    curl -X POST "http://localhost:8000/predict?task=acl&plane=sagittal" ^
+    curl -X POST "http://localhost:8000/predict_exam" ^
+         -F "file=@images/valid/sagittal/1130.npy"
+    curl -X POST "http://localhost:8000/explain?task=acl" ^
          -F "file=@images/valid/sagittal/1130.npy"
 
 Optional — require an API key:
@@ -69,11 +71,11 @@ Open:  http://localhost:5173
 The Vite dev server proxies /api/* to http://localhost:8000 automatically
 (configured in frontend\vite.config.js), so no CORS setup is needed.
 
-Optional — make LIVE mode the default and/or set your API key:
+Optional — point the frontend at a hosted backend and/or set your API key:
 
     copy frontend\.env.example frontend\.env
     # then edit frontend\.env:
-    #   VITE_API_MODE=live
+    #   VITE_API_BASE=/api               (default; or a full https:// URL)
     #   VITE_API_KEY=sk-my-secret        (same value as MRNET_API_KEY above)
     # restart `npx vite` after editing .env
 
@@ -91,12 +93,21 @@ STEP 3 — USE IT
      - scrub slices: arrow keys, mouse wheel, or the slider; Space = play
      - "3D Stack" tab: the volume as a rotating 3D stack (drag to rotate,
        ctrl+wheel zoom, double-click reset)
-4. Predictions:
-     - MOCK pill (default): simulated predictions, works with NO backend running
-     - click the pill once to switch to LIVE -> uses the real models served by
-       backend\server.py (backend must be running)
-     - pick a task/plane (e.g. "ACL tear - sagittal"), press "Run prediction"
-     - result card shows the verdict + animated confidence gauge
+4. Exam diagnosis (always the real backend - no mock mode):
+     - press "Run exam prediction" -> three verdict cards:
+       Abnormality / ACL tear / Meniscal tear
+     - each card: animated probability gauge (avg across planes), the 0/1
+       verdict (P > 0.5), confidence, and per-plane mini bars (AX/CO/SA)
+       showing which view drove the decision
+     - a "temperature-calibrated · T=..." chip appears when the backend has
+       fitted its calibration on the labeled valid split
+5. Grad-CAM heatmaps:
+     - click "Grad-CAM heatmap" on any task card
+     - the viewer tints the current slice with a jet heatmap of what the model
+       attended to (importance-weighted per slice)
+     - a slice-importance bar chart appears in the panel; click a bar to jump
+       to that slice; scrub to see the heatmap across slices
+     - click the button again to hide the overlay
 
 "backend offline"?  The backend isn't running - start it (STEP 1) and click the
 refresh icon next to the status dot.
@@ -123,12 +134,15 @@ TROUBLESHOOTING
       Get-NetTCPConnection -LocalPort 8000 -State Listen
       Stop-Process -Id <OwningProcess> -Force
 - Port 5173 already in use: same idea, or `npx vite --port 5174`.
-- "backend offline" in LIVE mode: is python backend\server.py running? Did you
-  edit .env without restarting vite?
+- "backend offline": is python backend\server.py running? Did you edit .env
+  without restarting vite?
 - 401 Unauthorized: backend started with MRNET_API_KEY but the frontend has no
   VITE_API_KEY (or a different value). Make both sides match.
-- 404 "no trained model for task=... plane=...": that combo has no artifact in
-  outputs\. Check GET /models for what is available.
+- 404 "no model for task=...": that task has no artifact in outputs\.
+  Check GET /models for what is available.
 - First prediction after server start is slower (~seconds): the model is being
   loaded onto the GPU on first use; subsequent requests are fast.
+- Calibration chip says "uncalibrated": the backend has not finished fitting
+  temperatures yet (needs images\valid-<task>.csv + ~a minute of GPU).
+  Check GET /calibration, or POST /calibrate to start it manually.
 ================================================================================
