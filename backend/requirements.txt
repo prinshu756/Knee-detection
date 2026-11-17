@@ -1,0 +1,7 @@
+fastapi>=0.115
+uvicorn>=0.32
+python-multipart>=0.0.12
+numpy>=1.26
+torch>=2.4
+torchvision>=0.19
+joblib>=1.3

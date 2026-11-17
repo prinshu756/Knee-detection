@@ -19,7 +19,6 @@ export default function App() {
   const [win, setWin] = useState([0, 1]);
   const [domain, setDomain] = useState([0, 1]);
   const [stack, setStack] = useState(false);
-  const [combo, setCombo] = useState('acl/sagittal');
   const [api, setApi] = useState({ online: false, models: [], any: false, checked: false });
   const [pred, setPred] = useState(null);          // {result} | {error}
   const [predBusy, setPredBusy] = useState(false);
@@ -165,7 +164,7 @@ export default function App() {
           </div>
         </main>
 
-        <PredPanel vol={vol} file={file} combo={combo} setCombo={setCombo} api={api}
+        <PredPanel vol={vol} file={file} api={api}
                    pred={pred} predBusy={predBusy} runPrediction={runPrediction}
                    onRefresh={refreshHealth} />
       </div>

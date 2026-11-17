@@ -16,9 +16,10 @@ The app talks to a swappable API layer (`src/lib/api.js`):
   entirely in the browser: no server, no keys, no network. "Predictions" are a
   stable hash of (file, size, task, plane), so the same input always returns the
   same probability — good for demos. Results are tagged `simulated · mock mode`.
-- **`live`** — `src/lib/realApi.js` calls a real backend (FastAPI from
-  `Training_and_validation.ipynb` on `:8000` through the Vite `/api` proxy, or any
-  compatible service) with optional API-key auth.
+- **`live`** — `src/lib/realApi.js` calls a real backend. The repo ships one:
+  `python backend/server.py` from the repo root serves every model artifact in
+  `outputs/` on `:8000` (through the Vite `/api` proxy), or point `VITE_API_BASE`
+  at any compatible service. API keys are supported via `VITE_API_KEY`.
 
 ### Switching
 
@@ -36,8 +37,8 @@ VITE_API_KEY_HEADER=Authorization   # default: "Authorization: Bearer <key>"
                                     # e.g. "X-API-Key" sends the raw key in that header
 ```
 
-The expected backend contract is the notebook's API: `GET /health` →
-`{ status, models_available: ["acl/sagittal", ...] }` and
+The expected backend contract is `backend/server.py`'s API: `GET /health` →
+`{ status, device, models_available: ["acl/sagittal", ...] }` and
 `POST /predict?task=<t>&plane=<p>` (multipart `file`) →
 `{ task, plane, probability, label, class }`.
 

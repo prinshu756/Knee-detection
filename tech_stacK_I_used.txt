@@ -1,0 +1,172 @@
+MRNet KNEE MRI — TECH STACK USED & HOW IT ALL WORKS
+
+Project: knee MRI viewer + abnormality prediction (MRNet dataset)
+Repo:    D:\MachineLearning\RSNA
+  frontend\   React + three.js web app
+  backend\    FastAPI model server
+  outputs\    trained model artifacts (.joblib / .pth) served by the backend
+  *.ipynb    notebooks that produced the pipeline + artifacts
+
+
+1. FRONTEND  (frontend\)
+
+Core libraries
+React 18.3        UI framework (components, hooks)
+three.js 0.169    WebGL rendering (the medical image viewer)
+GSAP 3.12         animations (slice crossfade, gauge sweep, UI transitions)
+Vite 5.4          dev server + bundler (also proxies /api -> backend :8000)
+
+Components
+  src/App.jsx                 app shell: state, upload, drag&drop, keyboard shortcuts
+  src/components/Viewer.jsx   three.js viewer (the canvas)
+  src/components/Chrome.jsx   Sidebar (file overview), Toolbar, Colorbar
+  src/components/PredPanel.jsx prediction panel (task picker, gauge, API status)
+  src/lib/npy.js              .npy parser running IN THE BROWSER
+  src/lib/colormaps.js        7 colormaps as 256-entry RGB lookup tables
+  src/lib/config.js           API mode config (mock/live, API keys via .env)
+  src/lib/mockApi.js          simulated backend (no server needed)
+  src/lib/realApi.js          real HTTP calls to backend/server.py
+  src/lib/api.js              dispatcher: picks mock or live per config
+
+How the viewer works (three.js shader pipeline)
+1. The uploaded .npy is parsed entirely in JavaScript (header v1/v2, dtypes,
+   Fortran-order transpose) into a Float32Array volume (D x H x W).
+   Raster images (png/jpg) are drawn to a canvas and become a 1-slice volume.
+2. The current slice becomes a three.js DataTexture on a full-screen quad.
+3. A custom WebGL fragment shader does, per pixel:
+     sample intensity -> window/level normalization -> colormap LUT lookup
+     -> discard background (so inverted mode keeps a dark background)
+4. Colormaps (Grayscale, Bone, Viridis, Rainbow, Hot, Ice, RGB) are 256-entry
+   LUT textures; switching colormap just swaps the LUT texture - no re-render.
+5. GSAP animates: slice crossfade (two textures + uMix uniform), window/level
+   changes, gauge sweeps.
+6. "3D Stack" mode: one quad per slice (max 48), offset in z, grouped, tilted,
+   gently auto-rotating; drag to rotate, ctrl+wheel to zoom.
+   (Gotcha fixed during dev: three r169 DataTexture does NOT auto-set
+   needsUpdate - stack textures must be flagged manually or they never upload.)
+7. Controls: arrows/wheel scrub, Space play, I invert, 3 stack, drag pan,
+   double-click reset.
+
+Prediction flow (frontend side)
+   file (still in browser memory)
+     -> POST /api/predict?task=<t>&plane=<p>   (multipart upload; Vite proxies
+                                                /api -> http://localhost:8000)
+     -> backend JSON: { task, plane, probability, label, class }
+     -> verdict label + animated gauge + confidence %
+
+Mock vs Live API
+ mock (default): mockApi.js simulates /health and /predict in the browser with
+  realistic latency. "Probability" = stable hash of (filename, size, task,
+  plane), so the same input always gives the same number (good for demos).
+  Results are tagged "simulated - mock mode".
+ live: realApi.js calls backend/server.py. Optional API key auth.
+ Switching: click the MOCK/LIVE pill in the prediction panel (stored in
+  localStorage), or set VITE_API_MODE in frontend/.env. Keys go in .env:
+      VITE_API_MODE=live
+      VITE_API_BASE=/api            (or a full https:// URL)
+      VITE_API_KEY=sk-...           (sent as Authorization: Bearer ...)
+      VITE_API_KEY_HEADER=Authorization   (or e.g. X-API-Key)
+
+
+2. BACKEND  (backend\)
+
+Core libraries
+FastAPI + uvicorn    HTTP API server
+PyTorch 2.x + torchvision   model architecture + inference (CUDA on your GPU)
+joblib               loads the .joblib artifact payloads
+numpy                .npy loading + preprocessing
+
+Files
+  backend/pipeline.py    the EXACT pipeline from the notebooks:
+                         standardize (per-volume z-score)
+                         -> trilinear resample to 32 slices
+                         -> stack 3 identical channels -> (3, 32, H, W)
+                         -> MRNet2D: resnet18 features per slice
+                            -> max-pool + logsumexp-pool across slices
+                            -> logistic head -> sigmoid probability
+  backend/server.py      FastAPI app + ARTIFACT REGISTRY (below)
+  backend/requirements.txt
+  backend/README.md
+
+How the artifact registry works (the clever bit)
+At startup the server scans outputs/ and registers EVERY model it finds:
+
+  model_<task>_<plane>*.joblib   single-task model (fc -> 1 output)
+                                 e.g. model_acl_sagittal_demo.joblib -> acl/sagittal
+  model_<plane>*.joblib          MULTI-TASK model (fc -> 3 outputs; one model
+                                 covers abnormal+acl+meniscus for that plane)
+                                 e.g. model_axial_demo.joblib -> 3 combos
+  best_*.pth                     fallback weights (used only when no joblib
+                                 covers a task/plane) + epoch/val_loss metadata
+
+=> 7 task/plane combos currently served from 3 model files:
+   acl/sagittal (single) + abnormal|acl|meniscus for axial and coronal (multi).
+
+Models are lazy-loaded: the nn.Module moves to the GPU on first request for
+that combo (thread-safe, cached). Drop any new model_*.joblib into outputs/
+and restart the server - it is picked up automatically, no code changes.
+
+Endpoints
+  GET  /health     {status, device, models_available: [...], api_key_required}
+  GET  /models     per-model details (artifact file, kind, threshold,
+                   epoch, val_loss, val_auc)
+  POST /predict?task=<t>&plane=<p>   multipart 'file' (.npy)
+                   -> {task, plane, probability, label, class}
+                   errors: 404 unknown combo, 400 bad .npy, 413 >300 MB
+  POST /predict_all                  one upload -> ALL available combos
+                                      (multi-task models run once per plane)
+
+Auth (optional)
+  set MRNET_API_KEY=sk-...  before starting the server, and requests must send
+  'Authorization: Bearer sk-...' or 'X-API-Key: sk-...'.
+  This pairs with the frontend's VITE_API_KEY - same key, either header style.
+  No env var = open API (localhost dev default).
+
+
+3. MACHINE LEARNING  (the notebooks)
+
+  Data_processing.ipynb           defines the preprocessing (standardize +
+                                  resample-to-32 or zero-pad-to-61), dataset class
+  Exploratory_Data_Analysis.ipynb dataset stats, slice counts, class balance
+  Model_Architecture.ipynb        MRNet2D (max+logsumexp) vs 3D CNN variants
+  Model_Training.ipynb            training loop: weighted BCE + Adam, batch=1,
+                                  50 epochs, early stopping, slice augmentations
+  Training_and_validation.ipynb   HPO (grid + random + Bayesian/optuna) + full
+                                  training + exports the joblib artifacts + API
+
+Model: ResNet18 (ImageNet-pretrained) backbone, each of the 32 slices embedded
+to a 512-d feature, pooled across slices with max + logsumexp (original MRNet
+paper aggregation), then a small logistic head.
+Multi-task variants share the backbone and output 3 logits at once.
+
+Current artifacts are DEMO models: trained on 24 exams in ~10 minutes to
+validate the whole pipeline end-to-end. Their predictions are NOT clinically
+meaningful (e.g. exam 1130 is truly ACL-negative but the demo model says
+"positive 73.8%"). Train with MRNET_MODE='all' (all 1130 exams, hours) for
+real accuracy - the backend/frontend need NO changes afterwards.
+
+Testing setup (not part of the product)
+- Playwright + Microsoft Edge (headless) drives the real UI end-to-end:
+  upload -> colormap switches -> 3D stack -> prediction -> console error check.
+- Backend verified via curl through the Vite proxy (200/400/401/404 paths,
+  determinism, /predict_all).
+
+
+4. HOW A REQUEST FLOWS END TO END
+
+  [Browser]                          [Vite :5173]            [FastAPI :8000]
+  upload .npy
+    |-- parse in JS (npy.js) --------> static app
+    |-- render slice (three.js)
+    |-- click "Run prediction"
+        |-- POST /api/predict?task=acl&plane=sagittal
+            (multipart file)          --proxy /api-->  registry lookup (7 combos)
+                                                       np.load -> preprocess
+                                                       (standardize + 32 slices)
+                                                       model forward (GPU)
+                                                       sigmoid -> JSON
+        <-- {probability: 0.738, label: 1, ...}  <----+
+    |-- gauge animates to 73.8%
+
+In mock mode the last hop never happens - mockApi.js answers locally with a
+deterministic simulated probability.

@@ -1,0 +1,134 @@
+================================================================================
+MRNet KNEE MRI — HOW TO RUN (BACKEND + FRONTEND)
+================================================================================
+
+Prerequisites
+-------------
+- Python 3.12 (with your CUDA-enabled PyTorch install already working)
+- Node.js 18+ (tested with v24)
+- Run all commands from the repo root:  D:\MachineLearning\RSNA
+
+
+--------------------------------------------------------------------------------
+STEP 1 — BACKEND  (FastAPI, port 8000)
+--------------------------------------------------------------------------------
+
+One-time install:
+
+    pip install -r backend\requirements.txt
+
+Start the server (it serves every model found in outputs\):
+
+    python backend\server.py
+
+    # alternative, from the repo root:
+    uvicorn backend.server:app --port 8000
+
+On startup it prints the device and the registered model combos, e.g.:
+
+    MRNet backend | device: cuda | models:
+      ['abnormal/axial', 'abnormal/coronal', 'acl/axial', 'acl/coronal',
+       'acl/sagittal', 'meniscus/axial', 'meniscus/coronal']
+
+Quick sanity check (new terminal):
+
+    curl http://localhost:8000/health
+    curl -X POST "http://localhost:8000/predict?task=acl&plane=sagittal" ^
+         -F "file=@images/valid/sagittal/1130.npy"
+
+Optional — require an API key:
+
+    # PowerShell:
+    $env:MRNET_API_KEY = 'sk-my-secret'
+    python backend\server.py
+    # then requests must send:  Authorization: Bearer sk-my-secret  (or X-API-Key)
+
+Notes
+-----
+- New/updated model files dropped into outputs\ are picked up on restart.
+- Trained only in demo mode so far (fast, ~24 exams). For real accuracy run
+  Training_and_validation.ipynb with MRNET_MODE='all' (hours), then restart
+  the backend - nothing else changes.
+
+
+--------------------------------------------------------------------------------
+STEP 2 — FRONTEND  (Vite dev server, port 5173)
+--------------------------------------------------------------------------------
+
+One-time install:
+
+    cd frontend
+    npm install
+
+Start the dev server:
+
+    npx vite
+
+Open:  http://localhost:5173
+
+The Vite dev server proxies /api/* to http://localhost:8000 automatically
+(configured in frontend\vite.config.js), so no CORS setup is needed.
+
+Optional — make LIVE mode the default and/or set your API key:
+
+    copy frontend\.env.example frontend\.env
+    # then edit frontend\.env:
+    #   VITE_API_MODE=live
+    #   VITE_API_KEY=sk-my-secret        (same value as MRNET_API_KEY above)
+    # restart `npx vite` after editing .env
+
+
+--------------------------------------------------------------------------------
+STEP 3 — USE IT
+--------------------------------------------------------------------------------
+
+1. Open http://localhost:5173
+2. Drag & drop a .npy volume (e.g. images\valid\sagittal\1130.npy) - or any
+   image - onto the dark viewer area (or click "Choose file").
+3. Play with it:
+     - Colormap dropdown: Grayscale / Bone / Viridis / Rainbow / Hot / Ice / RGB
+     - invert (I), flip, window/level sliders
+     - scrub slices: arrow keys, mouse wheel, or the slider; Space = play
+     - "3D Stack" tab: the volume as a rotating 3D stack (drag to rotate,
+       ctrl+wheel zoom, double-click reset)
+4. Predictions:
+     - MOCK pill (default): simulated predictions, works with NO backend running
+     - click the pill once to switch to LIVE -> uses the real models served by
+       backend\server.py (backend must be running)
+     - pick a task/plane (e.g. "ACL tear - sagittal"), press "Run prediction"
+     - result card shows the verdict + animated confidence gauge
+
+"backend offline"?  The backend isn't running - start it (STEP 1) and click the
+refresh icon next to the status dot.
+
+
+--------------------------------------------------------------------------------
+PRODUCTION BUILD (optional)
+--------------------------------------------------------------------------------
+
+    cd frontend
+    npx vite build          # outputs static files to frontend\dist\
+    npx vite preview        # serves the built bundle
+
+For a hosted deployment, point VITE_API_BASE in frontend\.env at your backend
+URL (the backend must have CORS enabled - it already allows all origins) and
+set VITE_API_KEY if you protected it with MRNET_API_KEY.
+
+
+--------------------------------------------------------------------------------
+TROUBLESHOOTING
+--------------------------------------------------------------------------------
+
+- Port 8000 already in use:
+      Get-NetTCPConnection -LocalPort 8000 -State Listen
+      Stop-Process -Id <OwningProcess> -Force
+- Port 5173 already in use: same idea, or `npx vite --port 5174`.
+- "backend offline" in LIVE mode: is python backend\server.py running? Did you
+  edit .env without restarting vite?
+- 401 Unauthorized: backend started with MRNET_API_KEY but the frontend has no
+  VITE_API_KEY (or a different value). Make both sides match.
+- 404 "no trained model for task=... plane=...": that combo has no artifact in
+  outputs\. Check GET /models for what is available.
+- First prediction after server start is slower (~seconds): the model is being
+  loaded onto the GPU on first use; subsequent requests are fast.
+================================================================================

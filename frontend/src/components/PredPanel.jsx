@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import gsap from 'gsap';
-import { TASK_PLANE, TASK_LABEL, apiMode, setApiMode } from '../lib';
+import { TASK_LABEL, apiMode, setApiMode } from '../lib';
 
-export default function PredPanel({ vol, file, combo, setCombo, api, pred, predBusy, runPrediction, onRefresh }) {
+export default function PredPanel({ vol, file, api, pred, predBusy, runPrediction, onRefresh }) {
   const gaugeRef = useRef(null);
   const numRef = useRef(null);
   const mode = apiMode();
@@ -49,20 +49,16 @@ export default function PredPanel({ vol, file, combo, setCombo, api, pred, predB
         <button className="ic tiny" onClick={onRefresh} title="re-check /health">⟳</button>
       </div>
 
-      <select className="combo-select full" value={combo} onChange={(e) => setCombo(e.target.value)}>
-        {Object.keys(TASK_PLANE).map((c) => <option key={c} value={c}>{TASK_PLANE[c]}</option>)}
-      </select>
-
       <button className={`primary-btn wide ${predBusy ? 'busy' : ''}`} disabled={!file || predBusy}
-              onClick={() => { const [t, p] = combo.split('/'); runPrediction(t, p); }}>
+              onClick={() => runPrediction('acl', 'sagittal')}>
         {predBusy ? 'Running model…' : file ? 'Run prediction →' : 'Upload a volume first'}
       </button>
 
       {mode === 'live' && !api.online && (
         <div className="pred-note">
-          No live backend reachable. Start the API from <span className="mono">Training_and_validation.ipynb</span>:
-          <div className="mono cmd">import uvicorn; uvicorn.run(app, host="0.0.0.0", port=8000)</div>
-          or point <span className="mono">VITE_API_BASE</span> at your service and set <span className="mono">VITE_API_KEY</span> in <span className="mono">frontend/.env</span>.
+          No live backend reachable. Start the artifact server from the repo root:
+          <div className="mono cmd">python backend/server.py</div>
+          It serves every model in <span className="mono">outputs/</span> on port 8000. For a hosted service set <span className="mono">VITE_API_BASE</span> and <span className="mono">VITE_API_KEY</span> in <span className="mono">frontend/.env</span>.
         </div>
       )}
 
