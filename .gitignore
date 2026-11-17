@@ -1,6 +1,8 @@
+outputs/
+*.pth
+*.joblib
+*.npy
+MRNet_ Knee MRI's_files
+outputs
+training_log.txt
 .vscode
-train
-validate
-data
-cache_preprocessed
-__pycache__
