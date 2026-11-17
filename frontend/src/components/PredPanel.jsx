@@ -1,10 +1,17 @@
 import { useEffect, useRef } from 'react';
 import gsap from 'gsap';
-import { TASK_PLANE, TASK_LABEL } from '../lib';
+import { TASK_PLANE, TASK_LABEL, apiMode, setApiMode } from '../lib';
 
 export default function PredPanel({ vol, file, combo, setCombo, api, pred, predBusy, runPrediction, onRefresh }) {
   const gaugeRef = useRef(null);
   const numRef = useRef(null);
+  const mode = apiMode();
+
+  // MOCK <-> LIVE: flips the localStorage override and re-checks health
+  const toggleMode = () => {
+    setApiMode(mode === 'live' ? 'mock' : 'live');
+    onRefresh();
+  };
 
   // animate gauge + probability counter whenever a prediction arrives
   useEffect(() => {
@@ -27,12 +34,18 @@ export default function PredPanel({ vol, file, combo, setCombo, api, pred, predB
       <div className="side-h pred-head">Prediction</div>
 
       <div className="api-row">
-        <span className={`api-dot ${api.online ? (api.any ? 'ok' : 'warn') : 'off'}`} />
+        <span className={`api-dot ${mode === 'mock' ? 'mock' : api.online ? (api.any ? 'ok' : 'warn') : 'off'}`} />
         <span className="api-text">
-          {api.online
-            ? (api.any ? `backend online · ${api.models.length} model${api.models.length > 1 ? 's' : ''}` : 'backend online · no models trained yet')
-            : 'backend offline'}
+          {mode === 'mock'
+            ? 'mock mode · simulated inference'
+            : api.online
+              ? (api.any ? `backend online · ${api.models.length} model${api.models.length > 1 ? 's' : ''}` : 'backend online · no models trained yet')
+              : 'backend offline'}
         </span>
+        <button className="mode-pill" onClick={toggleMode}
+                title={mode === 'mock' ? 'Switch to a live backend (set VITE_API_BASE / VITE_API_KEY in frontend/.env)' : 'Switch back to the built-in mock API'}>
+          {mode === 'live' ? 'LIVE' : 'MOCK'}
+        </button>
         <button className="ic tiny" onClick={onRefresh} title="re-check /health">⟳</button>
       </div>
 
@@ -45,10 +58,11 @@ export default function PredPanel({ vol, file, combo, setCombo, api, pred, predB
         {predBusy ? 'Running model…' : file ? 'Run prediction →' : 'Upload a volume first'}
       </button>
 
-      {!api.online && (
+      {mode === 'live' && !api.online && (
         <div className="pred-note">
-          Start the API from <span className="mono">Training_and_validation.ipynb</span>:
+          No live backend reachable. Start the API from <span className="mono">Training_and_validation.ipynb</span>:
           <div className="mono cmd">import uvicorn; uvicorn.run(app, host="0.0.0.0", port=8000)</div>
+          or point <span className="mono">VITE_API_BASE</span> at your service and set <span className="mono">VITE_API_KEY</span> in <span className="mono">frontend/.env</span>.
         </div>
       )}
 
@@ -57,6 +71,7 @@ export default function PredPanel({ vol, file, combo, setCombo, api, pred, predB
       {pred?.v && (
         <div className={`pred-card ${pred.v.pos ? 'pos' : 'neg'}`}>
           <div className="pred-title">{pred.v.title}</div>
+          {pred.res.mock && <div className="sim-chip">simulated · mock mode</div>}
           <div className="gauge-wrap">
             <svg viewBox="0 0 100 60" className="gauge">
               <path d="M 10 55 A 40 40 0 0 1 90 55" className="gauge-bg" pathLength="100" />

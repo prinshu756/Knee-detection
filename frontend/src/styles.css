@@ -11,6 +11,7 @@
   --hot: #ff5c7a;
   --ok: #4cd07d;
   --warn: #ffb84d;
+  --info: #4cc9f0;
   --mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
 }
 
@@ -197,6 +198,18 @@ body.dragging::after {
 .api-dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .api-dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
 .api-dot.off { background: #6b2536; }
+.api-dot.mock { background: var(--info); box-shadow: 0 0 8px var(--info); }
+.mode-pill {
+  background: none; border: 1px solid var(--line); color: var(--dim);
+  font: 700 10px/1 'Segoe UI', system-ui, sans-serif; letter-spacing: .6px;
+  border-radius: 10px; padding: 3px 9px; cursor: pointer; flex: 0 0 auto;
+}
+.mode-pill:hover { border-color: var(--info); color: var(--info); }
+.sim-chip {
+  font: 700 10px/1.4 'Segoe UI', system-ui, sans-serif; letter-spacing: .4px;
+  color: var(--info); border: 1px dashed var(--info); border-radius: 10px;
+  padding: 2px 9px; align-self: flex-start; width: fit-content;
+}
 .api-text { font-size: 12px; color: var(--dim); flex: 1 1 auto; }
 .combo-select {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--line);

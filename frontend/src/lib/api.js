@@ -1,7 +1,11 @@
-// Backend calls: default through the Vite /api proxy (uvicorn Training_and_validation:app on :8000)
-const BASE = import.meta.env.VITE_API_BASE || '/api';
+// API dispatcher — the rest of the app imports from here and never cares which
+// backend is active. Mode comes from config (localStorage > VITE_API_MODE > 'mock'):
+//   mock — simulated responses (mockApi.js), works with no server and no keys
+//   live — real HTTP calls (realApi.js) with optional API-key auth
+import { apiMode } from './config';
+import * as mock from './mockApi';
+import * as real from './realApi';
 
-const combo = (t) => t.split('/');
 export const TASK_PLANE = {
   'abnormal/axial': 'Abnormality · axial', 'abnormal/coronal': 'Abnormality · coronal', 'abnormal/sagittal': 'Abnormality · sagittal',
   'acl/axial': 'ACL tear · axial', 'acl/coronal': 'ACL tear · coronal', 'acl/sagittal': 'ACL tear · sagittal',
@@ -9,31 +13,16 @@ export const TASK_PLANE = {
 };
 export const TASK_LABEL = { abnormal: 'Abnormality', acl: 'ACL tear', meniscus: 'Meniscal tear' };
 
-export async function health() {
-  const r = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(8000) });
-  if (!r.ok) throw new Error(`health ${r.status}`);
-  const j = await r.json();
-  return {
-    online: true,
-    models: j.models_available || [],
-    any: (j.models_available || []).length > 0,
-  };
+const impl = () => (apiMode() === 'live' ? real : mock);
+
+export { apiMode, setApiMode } from './config';
+
+export function health() {
+  return impl().health();
 }
 
-export async function predict(file, task, plane, onProgress) {
-  const fd = new FormData();
-  fd.append('file', file, file.name || 'exam.npy');
-  if (onProgress) onProgress('uploading');
-  const r = await fetch(`${BASE}/predict?task=${encodeURIComponent(task)}&plane=${encodeURIComponent(plane)}`, {
-    method: 'POST',
-    body: fd,
-    signal: AbortSignal.timeout(120000),
-  });
-  onProgress?.('done');
-  if (r.status === 404) throw Object.assign(new Error('No trained model for this task/plane on the server.'), { status: 404 });
-  if (r.status === 400) throw Object.assign(new Error('Server rejected the file — is it a valid .npy volume?'), { status: 400 });
-  if (!r.ok) throw new Error(`predict failed (${r.status})`);
-  return r.json();
+export function predict(file, task, plane, onProgress) {
+  return impl().predict(file, task, plane, onProgress);
 }
 
 export function verdictLabel(res) {

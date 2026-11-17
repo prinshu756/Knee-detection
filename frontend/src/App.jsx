@@ -130,7 +130,9 @@ export default function App() {
         </div>
         <div className="top-actions">
           <button className="mode-btn active">Display</button>
-          <button className="mode-btn" onClick={refreshHealth} title="re-check backend">API {api.online ? 'online' : api.checked ? 'offline' : '…'}</button>
+          <button className="mode-btn" onClick={refreshHealth} title="re-check backend status">
+            {api.mock ? 'Mock API' : `API ${api.online ? 'online' : api.checked ? 'offline' : '…'}`}
+          </button>
         </div>
       </div>
 
