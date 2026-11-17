@@ -1,0 +1,84 @@
+import { useEffect, useRef } from 'react';
+import gsap from 'gsap';
+import { TASK_PLANE, TASK_LABEL } from '../lib';
+
+export default function PredPanel({ vol, file, combo, setCombo, api, pred, predBusy, runPrediction, onRefresh }) {
+  const gaugeRef = useRef(null);
+  const numRef = useRef(null);
+
+  // animate gauge + probability counter whenever a prediction arrives
+  useEffect(() => {
+    if (!pred?.v) return;
+    const { prob } = pred.v;
+    const arc = gaugeRef.current;
+    gsap.fromTo(arc, { strokeDashoffset: 100 }, {
+      strokeDashoffset: 100 - prob * 100, duration: 1.1, ease: 'power3.out',
+    });
+    const counter = { v: 0 };
+    gsap.to(counter, {
+      v: prob * 100, duration: 1.1, ease: 'power3.out',
+      onUpdate: () => { if (numRef.current) numRef.current.textContent = `${counter.v.toFixed(1)}%`; },
+    });
+    gsap.fromTo('.pred-card', { scale: 0.96, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: 'back.out(1.6)' });
+  }, [pred]);
+
+  return (
+    <aside className="predpanel">
+      <div className="side-h pred-head">Prediction</div>
+
+      <div className="api-row">
+        <span className={`api-dot ${api.online ? (api.any ? 'ok' : 'warn') : 'off'}`} />
+        <span className="api-text">
+          {api.online
+            ? (api.any ? `backend online · ${api.models.length} model${api.models.length > 1 ? 's' : ''}` : 'backend online · no models trained yet')
+            : 'backend offline'}
+        </span>
+        <button className="ic tiny" onClick={onRefresh} title="re-check /health">⟳</button>
+      </div>
+
+      <select className="combo-select full" value={combo} onChange={(e) => setCombo(e.target.value)}>
+        {Object.keys(TASK_PLANE).map((c) => <option key={c} value={c}>{TASK_PLANE[c]}</option>)}
+      </select>
+
+      <button className={`primary-btn wide ${predBusy ? 'busy' : ''}`} disabled={!file || predBusy}
+              onClick={() => { const [t, p] = combo.split('/'); runPrediction(t, p); }}>
+        {predBusy ? 'Running model…' : file ? 'Run prediction →' : 'Upload a volume first'}
+      </button>
+
+      {!api.online && (
+        <div className="pred-note">
+          Start the API from <span className="mono">Training_and_validation.ipynb</span>:
+          <div className="mono cmd">import uvicorn; uvicorn.run(app, host="0.0.0.0", port=8000)</div>
+        </div>
+      )}
+
+      {pred?.error && <div className="pred-error">⚠ {pred.error}</div>}
+
+      {pred?.v && (
+        <div className={`pred-card ${pred.v.pos ? 'pos' : 'neg'}`}>
+          <div className="pred-title">{pred.v.title}</div>
+          <div className="gauge-wrap">
+            <svg viewBox="0 0 100 60" className="gauge">
+              <path d="M 10 55 A 40 40 0 0 1 90 55" className="gauge-bg" pathLength="100" />
+              <path d="M 10 55 A 40 40 0 0 1 90 55" className={`gauge-arc ${pred.v.pos ? 'hot' : ''}`} ref={gaugeRef} pathLength="100" />
+            </svg>
+            <div className="gauge-num mono" ref={numRef}>0%</div>
+          </div>
+          <div className="pred-sub">
+            confidence <span className="mono">{Math.round(100 * Math.max(pred.res.probability, 1 - pred.res.probability))}%</span> ·
+            task <span className="mono">{TASK_LABEL[pred.res.task] || pred.res.task}</span> ·
+            plane <span className="mono">{pred.res.plane}</span>
+          </div>
+          <div className="pred-sub detail mono">
+            P(positive) = {pred.res.probability.toFixed(4)} · label {pred.res.label} ({pred.res.class})
+          </div>
+        </div>
+      )}
+
+      <div className="side-block side-help pred-foot">
+        <div>Model: resnet18 · 2D slice aggregation (max + logsumexp)</div>
+        <div>Input: .npy volume, standardized + resampled to 32 slices</div>
+      </div>
+    </aside>
+  );
+}

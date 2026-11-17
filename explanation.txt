@@ -1,0 +1,44 @@
+So in this files I will write what I need to do in this model
+
+## Rules
+if you make some changes and the codebase fucks up don't use any AI model to fix it you just waste your time in this 
+just clone it once more and redo all things and use your damn brain
+
+What its actually focus on or in other words what is goal
+so see knee have following abnormalities 
+1. Abnormal
+2. ACL Tear (Anterior Cruciate Ligament tear)
+3. Meniscus Tear
+
+So the goal is to predict whether the knee is abnormal , ACL tear , or Meniscus tear 
+
+So the mathematics we are using is 
+Single multi-task model: three sigmoid outputs per exam — P(abnormal), P(ACL tear), P(meniscal tear).
+
+Per-plane models: for each plane (axial/coronal/sagittal), three outputs per exam; you then aggregate across planes (average, max, or learned fusion) to get final exam-level probabilities.
+
+Thresholded decisions: convert probabilities to 0/1 using a chosen threshold, e.g. P(ACL tear) > 0.5 → ACL tear predicted.
+
+and the things I can produce is :
+
+Grad-CAM/heatmaps showing which slices/voxels influenced each prediction
+
+Confidence/calibration for each prediction
+
+Per-plane predictions to see which view drove the decision
+
+
+ok let me sure we can't detect 
+Tear severity/grade
+Tear location or subtype
+Other pathologies (e.g., MCL/PCL injury, cartilage damage, fractures)
+Slice-level or pixel-level localization as ground truth
+Treatment outcomes or prognosis
+
+we get very low accuracy score on that so we don't doing in this .
+If I need in future I will surely do this 
+
+
+THANKING FOR LISTENING TO ME HOPE YOU UNDERSTAND THIS 
+
+                                                --git commit -m "just a developer who loves to predict"
