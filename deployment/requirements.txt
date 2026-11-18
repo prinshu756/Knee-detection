@@ -1,0 +1,6 @@
+gradio>=4.0.0
+numpy
+pandas
+joblib
+torch>=2.0.0
+torchvision>=0.15.0
